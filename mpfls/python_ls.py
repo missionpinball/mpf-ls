@@ -246,7 +246,7 @@ class PythonLanguageServer(MethodDispatcher):
             if key.startswith("__"):
                 continue
             if value[1].startswith("subconfig") or value[0] in ("list", "dict"):
-                insert_text = key + ":\n      "
+                insert_text = key + ":\n  "
             else:
                 insert_text = key + ": "
 
@@ -261,13 +261,13 @@ class PythonLanguageServer(MethodDispatcher):
         elif settings[1].startswith("machine"):
             device = settings[1][8:-1]
             devices = config.get(device, {})
-            suggestions = [(device, device + "\n    ", "") for device in devices]
+            suggestions = [(device, device + "\n", "") for device in devices]
         elif settings[1].startswith("subconfig"):
             settings_name = settings[1][10:-1]
             suggestions = self._get_settings_suggestion(settings_name)
         elif settings[1] == "bool":
-            suggestions = [("True", "True\n    ", "(Default)" if "True" == settings[2] else ""),
-                           ("False", "False\n    ", "(Default)" if "False" == settings[2] else "")]
+            suggestions = [("True", "True\n", "(Default)" if "True" == settings[2] else ""),
+                           ("False", "False\n", "(Default)" if "False" == settings[2] else "")]
         else:
             suggestions = []
 
