@@ -9,7 +9,8 @@ Based on Microsoft example.
 Install vsix extension from this folder.
 
 Via GUI: Extensions -> Three Dots -> Install from VSIX -> Browse to this folder and install
-Via CLI: code --install-extension mpfls-0.0.1.vsix
+
+Via CLI: ``code --install-extension mpfls-0.0.1.vsix``
 
 ## Building extension
 
