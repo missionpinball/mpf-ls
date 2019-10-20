@@ -34,7 +34,6 @@ setup(
     install_requires=[
         'future>=0.14.0',
         'python-jsonrpc-server>=0.1.0',
-        'pluggy'
     ],
 
     # List additional groups of dependencies here (e.g. development

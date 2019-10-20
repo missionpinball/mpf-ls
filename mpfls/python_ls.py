@@ -140,13 +140,6 @@ class PythonLanguageServer(MethodDispatcher):
         workspace_uri = _utils.match_uri_to_workspace(uri, self.workspaces)
         return self.workspaces.get(workspace_uri, self.workspace)
 
-    def _hook(self, hook_name, doc_uri=None, **kwargs):
-        """Calls hook_name and returns a list of results from all registered handlers"""
-        workspace = self._match_uri_to_workspace(doc_uri)
-        doc = workspace.get_document(doc_uri) if doc_uri else None
-        hook_handlers = self.config.plugin_manager.subset_hook_caller(hook_name, self.config.disabled_plugins)
-        return hook_handlers(config=self.config, workspace=workspace, document=doc, **kwargs)
-
     def capabilities(self):
         server_capabilities = {
             'codeActionProvider': True,
@@ -163,7 +156,7 @@ class PythonLanguageServer(MethodDispatcher):
             'documentSymbolProvider': True,
             'definitionProvider': True,
             'executeCommandProvider': {
-                'commands': flatten(self._hook('pyls_commands'))
+                'commands': []
             },
             'hoverProvider': True,
             'referencesProvider': True,
@@ -184,7 +177,7 @@ class PythonLanguageServer(MethodDispatcher):
                     'changeNotifications': True
                 }
             },
-            'experimental': merge(self._hook('pyls_experimental_capabilities'))
+            'experimental': []
         }
         log.info('Server capabilities: %s', server_capabilities)
         return server_capabilities
@@ -200,8 +193,6 @@ class PythonLanguageServer(MethodDispatcher):
         self.workspaces[rootUri] = self.workspace
         self.config = config.Config(rootUri, initializationOptions or {},
                                     processId, _kwargs.get('capabilities', {}))
-        self._dispatchers = self._hook('pyls_dispatchers')
-        self._hook('pyls_initialize')
 
         if self._check_parent_process and processId is not None and self.watching_thread is None:
             def watch_parent_process(pid):
@@ -222,10 +213,10 @@ class PythonLanguageServer(MethodDispatcher):
         pass
 
     def code_actions(self, doc_uri, range, context):
-        return flatten(self._hook('pyls_code_actions', doc_uri, range=range, context=context))
+        return []
 
     def code_lens(self, doc_uri):
-        return flatten(self._hook('pyls_code_lens', doc_uri))
+        return []
 
     def _load_config(self, source):
         loader = YamlRoundtrip()
@@ -360,25 +351,25 @@ class PythonLanguageServer(MethodDispatcher):
         }
 
     def definitions(self, doc_uri, position):
-        return flatten(self._hook('pyls_definitions', doc_uri, position=position))
+        return []
 
     def document_symbols(self, doc_uri):
-        return flatten(self._hook('pyls_document_symbols', doc_uri))
+        return []
 
     def execute_command(self, command, arguments):
-        return self._hook('pyls_execute_command', command=command, arguments=arguments)
+        return None
 
     def format_document(self, doc_uri):
-        return self._hook('pyls_format_document', doc_uri)
+        return None
 
     def format_range(self, doc_uri, range):
-        return self._hook('pyls_format_range', doc_uri, range=range)
+        return None
 
     def highlight(self, doc_uri, position):
-        return flatten(self._hook('pyls_document_highlight', doc_uri, position=position)) or None
+        return None
 
     def hover(self, doc_uri, position):
-        return self._hook('pyls_hover', doc_uri, position=position) or {'contents': ''}
+        return {'contents': ''}
 
     @_utils.debounce(LINT_DEBOUNCE_S, keyed_by='doc_uri')
     def lint(self, doc_uri, is_saved):
@@ -387,20 +378,17 @@ class PythonLanguageServer(MethodDispatcher):
         if doc_uri in workspace.documents:
             workspace.publish_diagnostics(
                 doc_uri,
-                flatten(self._hook('pyls_lint', doc_uri, is_saved=is_saved))
+                []
             )
 
     def references(self, doc_uri, position, exclude_declaration):
-        return flatten(self._hook(
-            'pyls_references', doc_uri, position=position,
-            exclude_declaration=exclude_declaration
-        ))
+        return []
 
     def rename(self, doc_uri, position, new_name):
-        return self._hook('pyls_rename', doc_uri, position=position, new_name=new_name)
+        return None
 
     def signature_help(self, doc_uri, position):
-        return self._hook('pyls_signature_help', doc_uri, position=position)
+        return None
 
     def m_text_document__did_close(self, textDocument=None, **_kwargs):
         workspace = self._match_uri_to_workspace(textDocument['uri'])
@@ -409,7 +397,6 @@ class PythonLanguageServer(MethodDispatcher):
     def m_text_document__did_open(self, textDocument=None, **_kwargs):
         workspace = self._match_uri_to_workspace(textDocument['uri'])
         workspace.put_document(textDocument['uri'], textDocument['text'], version=textDocument.get('version'))
-        self._hook('pyls_document_did_open', textDocument['uri'])
         self.lint(textDocument['uri'], is_saved=True)
 
     def m_text_document__did_change(self, contentChanges=None, textDocument=None, **_kwargs):
