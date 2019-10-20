@@ -36,11 +36,11 @@
         "vscode": "npm run vscode:prepublish && VSCODE=$(which code-insiders || which code || echo echo ERROR: neither the code nor code-insiders vscode executable is installed); USER=dummy-dont-share-vscode-instance $VSCODE --user-data-dir=$PWD/.vscode-dev/user-data --extensionHomePath=$PWD/.vscode-dev/extensions --extensionDevelopmentPath=$PWD $*"
     },
     "devDependencies": {
-        "typescript": "^2.3.4",
-        "vscode": "^1.1.4",
-        "mocha": "^2.3.3",
+        "@types/mocha": "^2.2.32",
         "@types/node": "^6.0.40",
-        "@types/mocha": "^2.2.32"
+        "mocha": "^6.2.2",
+        "typescript": "^2.3.4",
+        "vscode": "^1.1.4"
     },
     "dependencies": {
         "vscode-languageclient": "^3.4.5"
