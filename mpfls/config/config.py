@@ -6,9 +6,6 @@ from mpfls import _utils, uris
 
 log = logging.getLogger(__name__)
 
-# Sources of config, first source overrides next source
-DEFAULT_CONFIG_SOURCES = ['pycodestyle']
-
 
 class Config(object):
 
@@ -52,7 +49,7 @@ class Config(object):
         settings.cache_clear() when the config is updated
         """
         settings = {}
-        sources = self._settings.get('configurationSources', DEFAULT_CONFIG_SOURCES)
+        sources = self._settings.get('configurationSources', [])
 
         for source_name in reversed(sources):
             source = self._config_sources.get(source_name)

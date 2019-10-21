@@ -20,8 +20,8 @@ log = logging.getLogger(__name__)
 LINT_DEBOUNCE_S = 0.5  # 500 ms
 PARENT_PROCESS_WATCH_INTERVAL = 10  # 10 s
 MAX_WORKERS = 64
-PYTHON_FILE_EXTENSIONS = ('.yaml')
-CONFIG_FILEs = ('pycodestyle.cfg', 'setup.cfg', 'tox.ini', '.flake8')
+MPF_FILE_EXTENSIONS = ('.yaml')
+CONFIG_FILEs = ('mpfls.cfg')
 
 
 class _StreamHandlerWrapper(socketserver.StreamRequestHandler, object):
@@ -218,14 +218,6 @@ class PythonLanguageServer(MethodDispatcher):
     def code_lens(self, doc_uri):
         return []
 
-    def _load_config(self, source):
-        loader = YamlRoundtrip()
-        try:
-            config_dict = loader.process(source)
-        except:
-            return {}
-        return config_dict
-
     def _get_position_path(self, config, position):
         line = position['line']
         character = position["character"]
@@ -260,7 +252,7 @@ class PythonLanguageServer(MethodDispatcher):
             suggestions = [(value, value + "\n", "") for value in values]
         elif settings[1].startswith("machine"):
             device = settings[1][8:-1]
-            devices = config.get(device, {})
+            devices = self.workspace.get_complete_config().get(device, {})
             suggestions = [(device, device + "\n", "") for device in devices]
         elif settings[1].startswith("subconfig"):
             settings_name = settings[1][10:-1]
@@ -299,8 +291,7 @@ class PythonLanguageServer(MethodDispatcher):
             }
 
         document = self.workspace.get_document(doc_uri)
-        config = self._load_config(document.source)
-        path = self._get_position_path(config, position)
+        path = self._get_position_path(document.config_roundtrip, position)
 
         if len(path) == 0:
             # global level -> all devices are valid
@@ -479,7 +470,7 @@ class PythonLanguageServer(MethodDispatcher):
         changed_py_files = set()
         config_changed = False
         for d in (changes or []):
-            if d['uri'].endswith(PYTHON_FILE_EXTENSIONS):
+            if d['uri'].endswith(MPF_FILE_EXTENSIONS):
                 changed_py_files.add(d['uri'])
             elif d['uri'].endswith(CONFIG_FILEs):
                 config_changed = True

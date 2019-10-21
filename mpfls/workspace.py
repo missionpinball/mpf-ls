@@ -3,6 +3,11 @@ import io
 import logging
 import os
 import re
+import time
+
+from mpf.core.utility_functions import Util
+from mpf.file_interfaces.yaml_interface import YamlInterface
+from mpf.file_interfaces.yaml_roundtrip import YamlRoundtrip
 
 from . import lsp, uris, _utils
 
@@ -26,6 +31,35 @@ class Workspace(object):
         self._root_path = uris.to_fs_path(self._root_uri)
         self._docs = {}
 
+    def get_root_document(self):
+        return self.get_document(uris.from_fs_path(os.path.join(self._root_path, "config", "config.yaml")))
+
+    def get_complete_config(self):
+        root_document = self.get_root_document()
+        config = self._load_document_and_subconfigs(root_document)
+        if "modes" in config:
+            for mode in config['modes']:
+                path = os.path.join(self._root_path, "modes", mode, "config", "{}.yaml".format(mode))
+                if os.path.exists(path):
+                    mode_document = self.get_document(uris.from_fs_path(path))
+                    mode_config = self._load_document_and_subconfigs(mode_document)
+                    mode_config.pop("mode", None)
+                    config = Util.dict_merge(config, mode_config)
+
+        return config
+
+    def _load_document_and_subconfigs(self, root_document):
+        config = root_document.config_simple
+        if 'config' in config:
+            for file in Util.string_to_list(config['config']):
+                path = os.path.join(os.path.split(root_document.path)[0], file)
+                if os.path.exists(path):
+                    sub_document = self.get_document(uris.from_fs_path(path))
+                    sub_config = self._load_document_and_subconfigs(sub_document)
+                    config = Util.dict_merge(config, sub_config)
+
+        return config
+
     @property
     def documents(self):
         return self._docs
@@ -46,7 +80,12 @@ class Workspace(object):
 
         See https://github.com/Microsoft/language-server-protocol/issues/177
         """
-        return self._docs.get(doc_uri) or self._create_document(doc_uri)
+        doc = self._docs.get(doc_uri)
+        if doc:
+            return doc
+
+        doc = self._docs[doc_uri] = self._create_document(doc_uri)
+        return doc
 
     def put_document(self, doc_uri, source, version=None):
         self._docs[doc_uri] = self._create_document(doc_uri, source=source, version=version)
@@ -69,14 +108,18 @@ class Workspace(object):
 
     def source_roots(self, document_path):
         """Return the source roots for the given document."""
-        files = _utils.find_parents(self._root_path, document_path, ['setup.py', 'pyproject.toml']) or []
+        files = _utils.find_parents(self._root_path, document_path, ['config', 'modes']) or []
         return list(set((os.path.dirname(project_file) for project_file in files))) or [self._root_path]
 
     def _create_document(self, doc_uri, source=None, version=None):
         path = uris.to_fs_path(doc_uri)
+
+        if not path.startswith(os.path.abspath(self.root_path)+os.sep):
+            self.show_message("{} is not in workspace {}. MPF Language Server will not work.".format(path,
+                                                                                                     self.root_path))
+
         return Document(
-            doc_uri, source=source, version=version,
-            extra_sys_path=self.source_roots(path)
+            doc_uri, source=source, version=version
         )
 
 
@@ -91,6 +134,50 @@ class Document(object):
         self._local = local
         self._source = source
         self._extra_sys_path = extra_sys_path or []
+        self._config_simple = {}
+        self._config_roundtrip = {}
+        self._last_config_simple = {}
+        self._last_config_roundtrip = {}
+        self._loader_roundtrip = YamlRoundtrip()
+        self._loader_simple = YamlInterface()
+
+    @property
+    def config_roundtrip(self):
+        if not self._config_roundtrip:
+            self._load_config_roundtrip()
+
+        if not self._config_roundtrip:
+            return self._last_config_roundtrip
+        else:
+            return self._config_roundtrip
+
+    def _load_config_roundtrip(self):
+        try:
+            self._config_roundtrip = self._loader_roundtrip.process(self.source)
+        except:
+            self._parsing_failed = True
+        else:
+            self._parsing_failed = False
+            self._last_config_roundtrip = self._config_roundtrip
+
+    @property
+    def config_simple(self):
+        if not self._config_simple:
+            self._load_config_simple()
+
+        if not self._config_simple:
+            return self._last_config_simple
+        else:
+            return self._config_simple
+
+    def _load_config_simple(self):
+        try:
+            self._config_simple = self._loader_simple.process(self.source)
+        except:
+            self._parsing_failed = True
+        else:
+            self._parsing_failed = False
+            self._last_config_simple = self._config_simple
 
     def __str__(self):
         return str(self.uri)
@@ -114,6 +201,7 @@ class Document(object):
         if not change_range:
             # The whole file has changed
             self._source = text
+            self._config = None
             return
 
         start_line = change_range['start']['line']
@@ -124,6 +212,7 @@ class Document(object):
         # Check for an edit occuring at the very end of the file
         if start_line == len(self.lines):
             self._source = self.source + text
+            self._config = None
             return
 
         new = io.StringIO()
@@ -148,6 +237,7 @@ class Document(object):
                 new.write(line[end_col:])
 
         self._source = new.getvalue()
+        self._config = None
 
     def offset_at_position(self, position):
         """Return the byte-offset pointed at by the given position."""
