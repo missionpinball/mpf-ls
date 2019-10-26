@@ -30,12 +30,16 @@ class Workspace(object):
         self._root_uri_scheme = uris.urlparse(self._root_uri)[0]
         self._root_path = uris.to_fs_path(self._root_uri)
         self._docs = {}
+        self._cached_config = {}
 
     def get_root_document(self):
         return self.get_document(uris.from_fs_path(os.path.join(self._root_path, "config", "config.yaml")))
 
     def get_complete_config(self):
         root_document = self.get_root_document()
+        if self._cached_config:
+            return self._cached_config
+
         config = self._load_document_and_subconfigs(root_document)
         if "modes" in config:
             for mode in config['modes']:
@@ -45,6 +49,8 @@ class Workspace(object):
                     mode_config = self._load_document_and_subconfigs(mode_document)
                     mode_config.pop("mode", None)
                     config = Util.dict_merge(config, mode_config)
+
+        self._cached_config = config
 
         return config
 
@@ -94,6 +100,7 @@ class Workspace(object):
         self._docs.pop(doc_uri)
 
     def update_document(self, doc_uri, change, version=None):
+        self._cached_config = {}
         self._docs[doc_uri].apply_change(change)
         self._docs[doc_uri].version = version
 
@@ -140,6 +147,10 @@ class Document(object):
         self._last_config_roundtrip = {}
         self._loader_roundtrip = YamlRoundtrip()
         self._loader_simple = YamlInterface()
+
+    def invalidate_config(self):
+        self._last_config_simple = {}
+        self._config_roundtrip = {}
 
     @property
     def config_roundtrip(self):
@@ -201,7 +212,7 @@ class Document(object):
         if not change_range:
             # The whole file has changed
             self._source = text
-            self._config = None
+            self.invalidate_config()
             return
 
         start_line = change_range['start']['line']
@@ -212,7 +223,7 @@ class Document(object):
         # Check for an edit occuring at the very end of the file
         if start_line == len(self.lines):
             self._source = self.source + text
-            self._config = None
+            self.invalidate_config()
             return
 
         new = io.StringIO()
@@ -237,7 +248,7 @@ class Document(object):
                 new.write(line[end_col:])
 
         self._source = new.getvalue()
-        self._config = None
+        self.invalidate_config()
 
     def offset_at_position(self, position):
         """Return the byte-offset pointed at by the given position."""
