@@ -276,7 +276,7 @@ class PythonLanguageServer(MethodDispatcher):
         for key, value in self.config_spec.get(settings_name, {}).items():
             if key.startswith("__"):
                 continue
-            if value[1].startswith("subconfig") or value[0] in ("list", "dict"):
+            if not isinstance(value, list) or value[1].startswith("subconfig") or value[0] in ("list", "dict"):
                 insert_text = key + ":\n  "
             else:
                 insert_text = key + ": "
@@ -357,6 +357,19 @@ class PythonLanguageServer(MethodDispatcher):
 
         return suggestions
 
+    def _walk_suggestions(self, path):
+        device_settings = self.config_spec.get(path[0], {})
+        for i in range(1, len(path) - 1):
+            attribute_settings = device_settings.get(path[i], ["", "", ""])
+            if attribute_settings[1].startswith("subconfig"):
+                settings_name = attribute_settings[1][10:-1]
+                device_settings = self.config_spec.get(settings_name, {})
+            else:
+                return []
+
+        attribute_settings = device_settings.get(path[len(path) - 1], ["", "", ""])
+        return self._get_settings_value_suggestions(attribute_settings)
+
     def completions(self, doc_uri, position):
         completions = []
 
@@ -386,6 +399,10 @@ class PythonLanguageServer(MethodDispatcher):
         token_start = self._get_start_of_token_at_position(document.lines, position)
         path, current_range = self._get_position_path(document.config_roundtrip, token_start)
 
+        root_spec = self.config_spec.get(path[0], {}) if path else {}
+
+        log.warning("Completions %s %s %s %s", doc_uri, position, path, root_spec)
+
         if len(path) == 0:
             # global level -> all devices are valid
             if document.machine_wide_config:
@@ -395,28 +412,25 @@ class PythonLanguageServer(MethodDispatcher):
                 suggestions = [(key, key + ":\n  ", "") for key, value in self.config_spec.items()
                                if "mode" in value.get("__valid_in__", [])]
         elif len(path) == 1:
-            # device name level -> no suggestions
-            suggestions = []
+            if root_spec.get("__type__", "") in ("config", "list"):
+                suggestions = self._get_settings_suggestion(path[0])
+            else:
+                # device name level -> no suggestions
+                suggestions = []
         elif len(path) == 2:
-            # device level -> suggest config options
-            suggestions = self._get_settings_suggestion(path[0])
-        elif len(path) == 3:
-            # settings level
-            device_settings = self.config_spec.get(path[0], {})
-            attribute_settings = device_settings.get(path[2], ["", "", ""])
-            suggestions = self._get_settings_value_suggestions(attribute_settings)
+            if root_spec.get("__type__", "") in ("config", "list"):
+                # settings level
+                suggestions = self._walk_suggestions(path)
+            else:
+                # device level -> suggest config options
+                suggestions = self._get_settings_suggestion(path[0])
         elif len(path) >= 3:
-            device_settings = self.config_spec.get(path[0], {})
-            for i in range(2, len(path) - 1):
-                attribute_settings = device_settings.get(path[i], ["", "", ""])
-                if attribute_settings[1].startswith("subconfig"):
-                    settings_name = attribute_settings[1][10:-1]
-                    device_settings = self.config_spec.get(settings_name, {})
-                else:
-                    return []
-
-            attribute_settings = device_settings.get(path[len(path) - 1], ["", "", ""])
-            suggestions = self._get_settings_value_suggestions(attribute_settings)
+            if root_spec.get("__type__", "") in ("config", "list"):
+                # settings level
+                suggestions = self._walk_suggestions(path)
+            else:
+                # device level -> suggest config options
+                suggestions = self._walk_suggestions([path[0]] + path[2:])
         else:
             suggestions = []
 
@@ -437,6 +451,19 @@ class PythonLanguageServer(MethodDispatcher):
             'items': completions
         }
 
+    def _walk_definitions(self, path, token):
+        device_settings = self.config_spec.get(path[0], {})
+        for i in range(1, len(path) - 1):
+            attribute_settings = device_settings.get(path[i], ["", "", ""])
+            if attribute_settings[1].startswith("subconfig"):
+                settings_name = attribute_settings[1][10:-1]
+                device_settings = self.config_spec.get(settings_name, {})
+            else:
+                return []
+
+        attribute_settings = device_settings.get(path[len(path) - 1], ["", "", ""])
+        return self._get_link_for_value(attribute_settings, token)
+
     def definitions(self, doc_uri, position):
         log.warning("Definitions %s %s", doc_uri, position)
 
@@ -444,26 +471,20 @@ class PythonLanguageServer(MethodDispatcher):
         token_start = self._get_start_of_token_at_position(document.lines, position)
         token, token_range = self._get_current_token(document.lines, token_start)
         path, current_range = self._get_position_path(document.config_roundtrip, token_start)
+        root_spec = self.config_spec.get(path[0], {}) if path else {}
 
         log.warning("Definitions %s %s %s", token, token_start, token_range)
 
-        if len(path) == 3:
-            # settings level
-            device_settings = self.config_spec.get(path[0], {})
-            attribute_settings = device_settings.get(path[2], ["", "", ""])
-            return self._get_link_for_value(attribute_settings, token)
+        if len(path) == 2:
+            if root_spec.get("__type__", "") in ("config", "list"):
+                return self._walk_definitions(path, token)
+            else:
+                return []
         elif len(path) >= 3:
-            device_settings = self.config_spec.get(path[0], {})
-            for i in range(2, len(path) - 1):
-                attribute_settings = device_settings.get(path[i], ["", "", ""])
-                if attribute_settings[1].startswith("subconfig"):
-                    settings_name = attribute_settings[1][10:-1]
-                    device_settings = self.config_spec.get(settings_name, {})
-                else:
-                    return []
-
-            attribute_settings = device_settings.get(path[len(path) - 1], ["", "", ""])
-            return self._get_link_for_value(attribute_settings, token)
+            if root_spec.get("__type__", "") in ("config", "list"):
+                return self._walk_definitions(path, token)
+            else:
+                return self._walk_definitions([path[0], path[2]], token)
         else:
             return []
 
@@ -560,6 +581,19 @@ class PythonLanguageServer(MethodDispatcher):
         else:
             return "{}{}. Default: {}".format(prefix, type, attribute_settings[2])
 
+    def _walk_hover(self, path, token):
+        device_settings = self.config_spec.get(path[0], {})
+        for i in range(1, len(path)):
+            attribute_settings = device_settings.get(path[i], ["", "", ""])
+            if attribute_settings[1].startswith("subconfig"):
+                settings_name = attribute_settings[1][10:-1]
+                device_settings = self.config_spec.get(settings_name, {})
+            else:
+                return {'contents': ""}
+
+        attribute_settings = device_settings.get(token, ["", "", ""])
+        return {'contents': self._layout_attribute_settings(attribute_settings)}
+
     def hover(self, doc_uri, position):
         log.warning("Hover %s %s", doc_uri, position)
 
@@ -568,35 +602,50 @@ class PythonLanguageServer(MethodDispatcher):
         token, token_range = self._get_current_token(document.lines, token_start)
         path, current_range = self._get_position_path(document.config_roundtrip, token_start)
 
-        if len(path) == 2:
-            # settings level
-            device_settings = self.config_spec.get(path[0], {})
-            attribute_settings = device_settings.get(token, ["", "", ""])
-            return {'contents': self._layout_attribute_settings(attribute_settings)}
-        elif len(path) > 2:
-            device_settings = self.config_spec.get(path[0], {})
-            for i in range(2, len(path)):
-                attribute_settings = device_settings.get(path[i], ["", "", ""])
-                if attribute_settings[1].startswith("subconfig"):
-                    settings_name = attribute_settings[1][10:-1]
-                    device_settings = self.config_spec.get(settings_name, {})
-                    return {'contents': self._layout_attribute_settings(attribute_settings)}
-                else:
-                    return {'contents': ""}
+        root_spec = self.config_spec.get(path[0], {}) if path else {}
 
-            attribute_settings = device_settings.get(token, ["", "", ""])
-            return {'contents': self._layout_attribute_settings(attribute_settings)}
+        if len(path) == 1:
+            if root_spec.get("__type__", "") in ("config", "list"):
+                return self._walk_hover([path[0]], token)
+            else:
+                return {'contents': ""}
+        if len(path) >= 2:
+            if root_spec.get("__type__", "") in ("config", "list"):
+                return self._walk_hover(path, token)
+            else:
+                return self._walk_hover([path[0]] + path[2:], token)
         else:
             return {'contents': ""}
 
     @_utils.debounce(LINT_DEBOUNCE_S, keyed_by='doc_uri')
     def lint(self, doc_uri, is_saved):
+        diagnostics = [
+            # {
+            #     'source': 'flake8',
+            #     'code': "1337",
+            #     'range': {
+            #         'start': {
+            #             'line': 0,
+            #             'character': 0
+            #         },
+            #         'end': {
+            #             'line': 1,
+            #             # no way to determine the column
+            #             'character': 10
+            #         }
+            #     },
+            #     'message': "Woho",
+            #     # no way to determine the severity using the legacy api
+            #     'severity': lsp.DiagnosticSeverity.Warning,
+            # }
+        ]
+
         # Since we're debounced, the document may no longer be open
         workspace = self._match_uri_to_workspace(doc_uri)
         if doc_uri in workspace.documents:
             workspace.publish_diagnostics(
                 doc_uri,
-                []
+                diagnostics
             )
 
     def references(self, doc_uri, position, exclude_declaration):
