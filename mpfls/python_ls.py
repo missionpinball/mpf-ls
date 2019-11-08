@@ -1,11 +1,12 @@
 # Copyright 2017 Palantir Technologies, Inc.
 import logging
+import os
 import socketserver
 import threading
 from functools import partial
 
 from mpf.core.config_validator import ConfigValidator
-from mpf.file_interfaces.yaml_roundtrip import YamlRoundtrip
+from mpf.core.utility_functions import Util
 from pyls_jsonrpc.dispatchers import MethodDispatcher
 from pyls_jsonrpc.endpoint import Endpoint
 from pyls_jsonrpc.streams import JsonRpcStreamReader, JsonRpcStreamWriter
@@ -213,24 +214,62 @@ class PythonLanguageServer(MethodDispatcher):
         pass
 
     def code_actions(self, doc_uri, range, context):
+        log.warning("Code actions %s %s %s", doc_uri, range, context)
         return []
 
     def code_lens(self, doc_uri):
+        log.warning("Code lens %s", doc_uri)
         return []
+
+    def _get_start_of_token_at_position(self, lines, position):
+        line = position['line']
+        character = position["character"]
+
+        try:
+            current_line = lines[line]
+        except IndexError:
+            # line does not exist
+            return position
+
+        while character >= 0 and (character >= len(current_line) or
+                                  current_line[character] not in (" ", ":", ",")):
+            character -= 1
+
+        return {"line": line, "character": character + 1}
+
+    def _get_current_token(self, lines, start_position):
+        line = start_position['line']
+        start_character = character = start_position["character"]
+
+        try:
+            current_line = lines[line]
+        except IndexError:
+            # line does not exist
+            return "", {"start": start_position, "end": start_position}
+
+        while character < len(current_line) and current_line[character] not in (" ", ":", ",", "\n"):
+            character += 1
+
+        return current_line[start_character:character],\
+               {"start": start_position, "end": {"line": line, "character": character}}
 
     def _get_position_path(self, config, position):
         line = position['line']
         character = position["character"]
         candidate_key = None
+        token_range = [line, character, line, character]
+
         if hasattr(config, "lc"):
             for key, lc in config.lc.data.items():
                 if len(lc) >= 4 and ((lc[0] <= line and lc[3] <= character) or (lc[1] < character and lc[2] < line)):
                     candidate_key = key
+                    token_range = lc
 
         if candidate_key is not None:
-            return [candidate_key] + self._get_position_path(config[candidate_key], position)
+            path, child_range = self._get_position_path(config[candidate_key], position)
+            return [candidate_key] + path, child_range if child_range else token_range
         else:
-            return []
+            return [], None
 
     def _get_settings_suggestion(self, settings_name):
         suggestions = []
@@ -246,7 +285,60 @@ class PythonLanguageServer(MethodDispatcher):
 
         return suggestions
 
-    def _get_settings_value_suggestions(self, config, settings):
+    def _find_device_in_config(self, document, device_type, device_name):
+        found = []
+        config = document.config_roundtrip
+        device_config = config.get(device_type, {})
+        if device_config:
+            if device_name in device_config:
+                lc = device_config.lc.data[device_name]
+                range = {"start": {"line": lc[0], "character": lc[1]},
+                         "end": {"line": lc[2], "character": lc[3]}}
+                found.append({
+                    "uri": uris.from_fs_path(document.path),
+                    "range": range,
+                })
+
+        if 'config' in config:
+            for file in Util.string_to_list(config['config']):
+                path = os.path.join(os.path.split(document.path)[0], file)
+                if os.path.exists(path):
+                    sub_document = self.workspace.get_document(uris.from_fs_path(path))
+                    found.extend(self._find_device_in_config(sub_document, device_type, device_name))
+
+        return found
+
+    def _get_definitions(self, device_type, device_name):
+        # iterate all configs and find the device as high as possible in the hierarchy
+        root_document = self.workspace.get_root_document()
+        found = self._find_device_in_config(root_document, device_type, device_name)
+        found.extend(self._find_device_in_config(self.workspace.get_mpf_config(), device_type, device_name))
+        found.extend(self._find_device_in_config(self.workspace.get_mc_config(), device_type, device_name))
+
+        config = self.workspace.get_complete_config()
+        if "modes" in config:
+            for mode in config['modes']:
+                path = os.path.join(self.workspace.root_path, "modes", mode, "config", "{}.yaml".format(mode))
+                if os.path.exists(path):
+                    mode_document = self.workspace.get_document(uris.from_fs_path(path))
+                    found.extend(self._find_device_in_config(mode_document, device_type, device_name))
+
+        return found
+
+    def _get_link_for_value(self, settings, device_name):
+        if settings[1].startswith("machine"):
+            device_type = settings[1][8:-1]
+            found = self._get_definitions(device_type, device_name)
+            if device_type == "ball_devices":
+                # special case for playfields
+                found.extend(self._get_definitions("playfields", device_name))
+
+            log.warning("Definitions found %s", found)
+            return found
+
+        return None
+
+    def _get_settings_value_suggestions(self, settings):
         if settings[1].startswith("enum"):
             values = settings[1][5:-1].split(",")
             suggestions = [(value, value + "\n", "") for value in values]
@@ -291,13 +383,17 @@ class PythonLanguageServer(MethodDispatcher):
             }
 
         document = self.workspace.get_document(doc_uri)
-        path = self._get_position_path(document.config_roundtrip, position)
+        token_start = self._get_start_of_token_at_position(document.lines, position)
+        path, current_range = self._get_position_path(document.config_roundtrip, token_start)
 
         if len(path) == 0:
             # global level -> all devices are valid
-            # TODO: check if this is a mode or machine file
-            suggestions = [(key, key + ":\n  ", "") for key, value in self.config_spec.items()
-                           if "machine" in value.get("__valid_in__", [])]
+            if document.machine_wide_config:
+                suggestions = [(key, key + ":\n  ", "") for key, value in self.config_spec.items()
+                               if "machine" in value.get("__valid_in__", [])]
+            else:
+                suggestions = [(key, key + ":\n  ", "") for key, value in self.config_spec.items()
+                               if "mode" in value.get("__valid_in__", [])]
         elif len(path) == 1:
             # device name level -> no suggestions
             suggestions = []
@@ -308,7 +404,7 @@ class PythonLanguageServer(MethodDispatcher):
             # settings level
             device_settings = self.config_spec.get(path[0], {})
             attribute_settings = device_settings.get(path[2], ["", "", ""])
-            suggestions = self._get_settings_value_suggestions(config, attribute_settings)
+            suggestions = self._get_settings_value_suggestions(attribute_settings)
         elif len(path) >= 3:
             device_settings = self.config_spec.get(path[0], {})
             for i in range(2, len(path) - 1):
@@ -320,7 +416,7 @@ class PythonLanguageServer(MethodDispatcher):
                     return []
 
             attribute_settings = device_settings.get(path[len(path) - 1], ["", "", ""])
-            suggestions = self._get_settings_value_suggestions(config, attribute_settings)
+            suggestions = self._get_settings_value_suggestions(attribute_settings)
         else:
             suggestions = []
 
@@ -342,25 +438,156 @@ class PythonLanguageServer(MethodDispatcher):
         }
 
     def definitions(self, doc_uri, position):
-        return []
+        log.warning("Definitions %s %s", doc_uri, position)
+
+        document = self.workspace.get_document(doc_uri)
+        token_start = self._get_start_of_token_at_position(document.lines, position)
+        token, token_range = self._get_current_token(document.lines, token_start)
+        path, current_range = self._get_position_path(document.config_roundtrip, token_start)
+
+        log.warning("Definitions %s %s %s", token, token_start, token_range)
+
+        if len(path) == 3:
+            # settings level
+            device_settings = self.config_spec.get(path[0], {})
+            attribute_settings = device_settings.get(path[2], ["", "", ""])
+            return self._get_link_for_value(attribute_settings, token)
+        elif len(path) >= 3:
+            device_settings = self.config_spec.get(path[0], {})
+            for i in range(2, len(path) - 1):
+                attribute_settings = device_settings.get(path[i], ["", "", ""])
+                if attribute_settings[1].startswith("subconfig"):
+                    settings_name = attribute_settings[1][10:-1]
+                    device_settings = self.config_spec.get(settings_name, {})
+                else:
+                    return []
+
+            attribute_settings = device_settings.get(path[len(path) - 1], ["", "", ""])
+            return self._get_link_for_value(attribute_settings, token)
+        else:
+            return []
+
+    def _walk_devices(self, config):
+        symbols = []
+        for device_name, device_config in config.items():
+            if hasattr(device_config, "lc"):
+                for key, lc in device_config.lc.data.items():
+                    range = {"start": {"line": lc[0], "character": lc[1]},
+                               "end": {"line": lc[2], "character": lc[3]}}
+                    symbols.append(
+                        {
+                            "name": key,
+                            "detail": "",
+                            "kind": lsp.SymbolKind.Class,
+                            "deprecated": False,
+                            "range": range,
+                            "selectionRange": range,
+                            "children": []
+                        })
+        return symbols
 
     def document_symbols(self, doc_uri):
+        log.warning("Document symbols %s", doc_uri)
+
         return []
 
+        document = self.workspace.get_document(doc_uri)
+        symbols = self._walk_devices(document.config_roundtrip)
+
+        return symbols
+
     def execute_command(self, command, arguments):
+        log.warning("Execute command %s %s", command, arguments)
         return None
 
     def format_document(self, doc_uri):
+        log.warning("Format Document %s", doc_uri)
         return None
 
     def format_range(self, doc_uri, range):
+        log.warning("Format Range %s %s", doc_uri, range)
         return None
 
     def highlight(self, doc_uri, position):
+        log.warning("Highlight %s %s", doc_uri, position)
+
         return None
 
+        document = self.workspace.get_document(doc_uri)
+        token_start = self._get_start_of_token_at_position(document.lines, position)
+        # TODO: get current element instead of the one left of the element
+        path, current_range = self._get_position_path(document.config_roundtrip, token_start)
+
+        if current_range:
+            return [
+
+                {"kind": lsp.DocumentHighlightKind.Read,
+                 "range": {"start": {"line": current_range[0], "character": current_range[1]},
+                           "end": {"line": current_range[2], "character": current_range[3]}}
+                 },
+
+            ]
+        else:
+            return None
+
+    def _layout_attribute_settings(self, attribute_settings):
+        if not attribute_settings or attribute_settings == ["", "", ""]:
+            return ""
+        if attribute_settings[0] == "single":
+            prefix = ""
+        elif attribute_settings[0] == "list":
+            prefix = "List of "
+        elif attribute_settings[0] == "dict":
+            prefix = "Dictionary of "
+        elif attribute_settings[0] == "event_handler":
+            return "List of event handlers. Default: {}".format(attribute_settings[2])
+        else:
+            prefix = attribute_settings[0]
+
+        if attribute_settings[1].startswith("machine"):
+            device_type = attribute_settings[1][8:-1]
+            type = "device of type {}".format(device_type)
+        else:
+            type = attribute_settings[1]
+
+        if not prefix:
+            type = type.capitalize()
+
+        if attribute_settings[2] == "None":
+            return "{}{}. Defaults to empty.".format(prefix, type)
+        elif attribute_settings[2] == "":
+            return "{}{}. Required attribute.".format(prefix, type)
+        else:
+            return "{}{}. Default: {}".format(prefix, type, attribute_settings[2])
+
     def hover(self, doc_uri, position):
-        return {'contents': ''}
+        log.warning("Hover %s %s", doc_uri, position)
+
+        document = self.workspace.get_document(doc_uri)
+        token_start = self._get_start_of_token_at_position(document.lines, position)
+        token, token_range = self._get_current_token(document.lines, token_start)
+        path, current_range = self._get_position_path(document.config_roundtrip, token_start)
+
+        if len(path) == 2:
+            # settings level
+            device_settings = self.config_spec.get(path[0], {})
+            attribute_settings = device_settings.get(token, ["", "", ""])
+            return {'contents': self._layout_attribute_settings(attribute_settings)}
+        elif len(path) > 2:
+            device_settings = self.config_spec.get(path[0], {})
+            for i in range(2, len(path)):
+                attribute_settings = device_settings.get(path[i], ["", "", ""])
+                if attribute_settings[1].startswith("subconfig"):
+                    settings_name = attribute_settings[1][10:-1]
+                    device_settings = self.config_spec.get(settings_name, {})
+                    return {'contents': self._layout_attribute_settings(attribute_settings)}
+                else:
+                    return {'contents': ""}
+
+            attribute_settings = device_settings.get(token, ["", "", ""])
+            return {'contents': self._layout_attribute_settings(attribute_settings)}
+        else:
+            return {'contents': ""}
 
     @_utils.debounce(LINT_DEBOUNCE_S, keyed_by='doc_uri')
     def lint(self, doc_uri, is_saved):
@@ -373,12 +600,15 @@ class PythonLanguageServer(MethodDispatcher):
             )
 
     def references(self, doc_uri, position, exclude_declaration):
+        log.warning("References %s %s %s", doc_uri, position, exclude_declaration)
         return []
 
     def rename(self, doc_uri, position, new_name):
+        log.warning("Rename %s %s %s", doc_uri, position, new_name)
         return None
 
     def signature_help(self, doc_uri, position):
+        log.warning("Signature help %s %s", doc_uri, position)
         return None
 
     def m_text_document__did_close(self, textDocument=None, **_kwargs):
