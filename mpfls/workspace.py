@@ -1,9 +1,11 @@
 # Copyright 2017 Palantir Technologies, Inc.
 import io
 import logging
+import mpfmc
+
+import mpf
 import os
 import re
-import time
 
 from mpf.core.utility_functions import Util
 from mpf.file_interfaces.yaml_interface import YamlInterface
@@ -31,19 +33,29 @@ class Workspace(object):
         self._root_path = uris.to_fs_path(self._root_uri)
         self._docs = {}
         self._cached_config = {}
+        self.mpf_path = os.path.abspath(mpf.__file__)
+        self.mc_path = os.path.abspath(mpfmc.__file__)
+        self.config_path = os.path.join(self._root_path, "config")
+        self.mode_path = os.path.join(self._root_path, "modes")
 
     def get_root_document(self):
-        return self.get_document(uris.from_fs_path(os.path.join(self._root_path, "config", "config.yaml")))
+        return self.get_document(uris.from_fs_path(os.path.join(self.config_path, "config.yaml")))
+
+    def get_mpf_config(self):
+        return self.get_document(uris.from_fs_path(os.path.join(self.mpf_path, "mpfconfig.yaml")))
+
+    def get_mc_config(self):
+        return self.get_document(uris.from_fs_path(os.path.join(self.mc_path, "mcconfig.yaml")))
 
     def get_complete_config(self):
-        root_document = self.get_root_document()
         if self._cached_config:
             return self._cached_config
 
+        root_document = self.get_root_document()
         config = self._load_document_and_subconfigs(root_document)
         if "modes" in config:
             for mode in config['modes']:
-                path = os.path.join(self._root_path, "modes", mode, "config", "{}.yaml".format(mode))
+                path = os.path.join(self.mode_path, mode, "config", "{}.yaml".format(mode))
                 if os.path.exists(path):
                     mode_document = self.get_document(uris.from_fs_path(path))
                     mode_config = self._load_document_and_subconfigs(mode_document)
@@ -121,18 +133,20 @@ class Workspace(object):
     def _create_document(self, doc_uri, source=None, version=None):
         path = uris.to_fs_path(doc_uri)
 
-        if not path.startswith(os.path.abspath(self.root_path)+os.sep):
+        if not path.startswith(os.path.abspath(self.root_path) + os.sep) and \
+                not path.startswith(self.mpf_path + os.sep) and \
+                not path.startswith(self.mc_path + os.sep):
             self.show_message("{} is not in workspace {}. MPF Language Server will not work.".format(path,
                                                                                                      self.root_path))
 
         return Document(
-            doc_uri, source=source, version=version
+            doc_uri, source=source, version=version, machine_wide_config=not path.startswith(self.mode_path + os.sep)
         )
 
 
 class Document(object):
 
-    def __init__(self, uri, source=None, version=None, local=True, extra_sys_path=None):
+    def __init__(self, uri, source=None, version=None, local=True, extra_sys_path=None, machine_wide_config=True):
         self.uri = uri
         self.version = version
         self.path = uris.to_fs_path(uri)
@@ -147,6 +161,7 @@ class Document(object):
         self._last_config_roundtrip = {}
         self._loader_roundtrip = YamlRoundtrip()
         self._loader_simple = YamlInterface()
+        self.machine_wide_config = machine_wide_config
 
     def invalidate_config(self):
         self._last_config_simple = {}
