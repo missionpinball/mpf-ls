@@ -10,6 +10,9 @@ matrix:
 install:
   - python3 setup.py sdist 
 
+script:
+  - echo "Yoo"
+
 deploy:
   provider: pypi
   user: jabdoa
