@@ -7,6 +7,9 @@ matrix:
      language: python
      python: "3.6"
 
+install:
+  - python3 setup.py sdist 
+
 deploy:
   provider: pypi
   user: jabdoa
