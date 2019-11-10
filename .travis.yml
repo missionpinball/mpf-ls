@@ -8,10 +8,10 @@ matrix:
      python: "3.6"
 
 install:
-  - python3 setup.py sdist 
+  - echo "Fake install"
 
 script:
-  - echo "Yoo"
+  - echo "Fake tests"
 
 deploy:
   provider: pypi
