@@ -8,7 +8,7 @@ Installation (from pypi)
 
 .. code-block:: bash
 
-    pip3 install mpf-ls
+    pip3 install mpf-language-server
 
 Usage in IDE
 ------------
