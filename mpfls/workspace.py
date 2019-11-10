@@ -19,6 +19,10 @@ log = logging.getLogger(__name__)
 RE_START_WORD = re.compile('[A-Za-z_0-9]*$')
 RE_END_WORD = re.compile('^[A-Za-z_0-9]*')
 
+TYPE_MACHINE = "machine"
+TYPE_MODE = "mode"
+TYPE_SHOW = "show"
+
 
 class Workspace(object):
 
@@ -37,6 +41,7 @@ class Workspace(object):
         self.mc_path = os.path.abspath(mpfmc.__file__)
         self.config_path = os.path.join(self._root_path, "config")
         self.mode_path = os.path.join(self._root_path, "modes")
+        self.show_path = os.path.join(self._root_path, "shows")
 
     def get_root_document(self):
         return self.get_document(uris.from_fs_path(os.path.join(self.config_path, "config.yaml")))
@@ -139,14 +144,21 @@ class Workspace(object):
             self.show_message("{} is not in workspace {}. MPF Language Server will not work.".format(path,
                                                                                                      self.root_path))
 
+        if path.startswith(self.mode_path + os.sep):
+            config_type = TYPE_MODE
+        elif path.startswith(self.show_path + os.sep):
+            config_type = TYPE_SHOW
+        else:
+            config_type = TYPE_MACHINE
+
         return Document(
-            doc_uri, source=source, version=version, machine_wide_config=not path.startswith(self.mode_path + os.sep)
+            doc_uri, source=source, version=version, config_type=config_type
         )
 
 
 class Document(object):
 
-    def __init__(self, uri, source=None, version=None, local=True, extra_sys_path=None, machine_wide_config=True):
+    def __init__(self, uri, config_type, source=None, version=None, local=True, extra_sys_path=None):
         self.uri = uri
         self.version = version
         self.path = uris.to_fs_path(uri)
@@ -161,11 +173,15 @@ class Document(object):
         self._last_config_roundtrip = {}
         self._loader_roundtrip = YamlRoundtrip()
         self._loader_simple = YamlInterface()
-        self.machine_wide_config = machine_wide_config
+        self.config_type = config_type
 
     def invalidate_config(self):
         self._last_config_simple = {}
         self._config_roundtrip = {}
+
+    @property
+    def parsing_failed(self):
+        return self._parsing_failed
 
     @property
     def config_roundtrip(self):

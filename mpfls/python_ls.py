@@ -3,17 +3,20 @@ import logging
 import os
 import socketserver
 import threading
+import traceback
+from copy import deepcopy
 from functools import partial
 
 from mpf.core.config_validator import ConfigValidator
 from mpf.core.utility_functions import Util
+from mpf.exceptions.config_file_error import ConfigFileError
 from pyls_jsonrpc.dispatchers import MethodDispatcher
 from pyls_jsonrpc.endpoint import Endpoint
 from pyls_jsonrpc.streams import JsonRpcStreamReader, JsonRpcStreamWriter
 
 from . import lsp, _utils, uris
 from .config import config
-from .workspace import Workspace
+from .workspace import Workspace, TYPE_MACHINE, TYPE_MODE, TYPE_SHOW
 
 log = logging.getLogger(__name__)
 
@@ -102,8 +105,8 @@ class PythonLanguageServer(MethodDispatcher):
         self._dispatchers = []
         self._shutdown = False
 
-        validator = ConfigValidator(None, True, False)
-        self.config_spec = validator.get_config_spec()
+        self.validator = ConfigValidator(None, True, False)
+        self.config_spec = self.validator.get_config_spec()
 
     def start(self):
         """Entry point for the server."""
@@ -261,19 +264,25 @@ class PythonLanguageServer(MethodDispatcher):
 
         if hasattr(config, "lc"):
             for key, lc in config.lc.data.items():
-                if len(lc) >= 4 and ((lc[0] <= line and lc[3] <= character) or (lc[1] < character and lc[2] < line)):
+                if len(lc) == 4 and ((lc[0] <= line and lc[3] <= character) or (lc[1] < character and lc[2] < line)) or \
+                        (len(lc) == 2 and lc[0] <= line and lc[1] <= character):
                     candidate_key = key
                     token_range = lc
 
         if candidate_key is not None:
             path, child_range = self._get_position_path(config[candidate_key], position)
-            return [candidate_key] + path, child_range if child_range else token_range
+            if len(token_range) == 4:
+                return [candidate_key] + path, child_range if child_range else token_range
+            else:
+                # skip lists in path but keep searching
+                return path, child_range if child_range else token_range
         else:
             return [], None
 
     def _get_settings_suggestion(self, settings_name):
         suggestions = []
-        for key, value in self.config_spec.get(settings_name, {}).items():
+        spec = self._get_spec(settings_name)
+        for key, value in spec.items():
             if key.startswith("__"):
                 continue
             if not isinstance(value, list) or value[1].startswith("subconfig") or value[0] in ("list", "dict"):
@@ -323,47 +332,94 @@ class PythonLanguageServer(MethodDispatcher):
                     mode_document = self.workspace.get_document(uris.from_fs_path(path))
                     found.extend(self._find_device_in_config(mode_document, device_type, device_name))
 
+        if device_type == "ball_devices":
+            # special case for playfields
+            found.extend(self._get_definitions("playfields", device_name))
+
         return found
 
     def _get_link_for_value(self, settings, device_name):
         if settings[1].startswith("machine"):
             device_type = settings[1][8:-1]
             found = self._get_definitions(device_type, device_name)
-            if device_type == "ball_devices":
-                # special case for playfields
-                found.extend(self._get_definitions("playfields", device_name))
-
-            log.warning("Definitions found %s", found)
             return found
 
         return None
 
+    def _range_from_lc(self, document, lc):
+        if len(lc) == 4:
+            return {
+                'start': {
+                    'line': lc[0],
+                    'character': lc[1]
+                },
+                'end': {
+                    'line': lc[2],
+                    'character': lc[3]
+                }
+            }
+        else:
+            return {
+                'start': {
+                    'line': lc[0],
+                    'character': lc[1]
+                },
+                'end': {
+                    'line': lc[0],
+                    'character': len(document.lines[lc[0]])
+                }
+            }
+
+    def _range_after_lc(self, document, lc):
+        if len(lc) == 4:
+            return {
+                'start': {
+                    'line': lc[2],
+                    'character': lc[3]
+                },
+                'end': {
+                    'line': lc[2],
+                    'character': len(document.lines[lc[2]])
+                }
+            }
+        else:
+            return {
+                'start': {
+                    'line': lc[0],
+                    'character': lc[1]
+                },
+                'end': {
+                    'line': lc[0],
+                    'character': len(document.lines[lc[0]])
+                }
+            }
+
     def _get_settings_value_suggestions(self, settings):
         if settings[1].startswith("enum"):
             values = settings[1][5:-1].split(",")
-            suggestions = [(value, value + "\n", "") for value in values]
+            suggestions = [(value, value, "") for value in values]
         elif settings[1].startswith("machine"):
             device = settings[1][8:-1]
             devices = self.workspace.get_complete_config().get(device, {})
-            suggestions = [(device, device + "\n", "") for device in devices]
+            suggestions = [(device, device, "") for device in devices]
         elif settings[1].startswith("subconfig"):
             settings_name = settings[1][10:-1]
             suggestions = self._get_settings_suggestion(settings_name)
         elif settings[1] == "bool":
-            suggestions = [("True", "True\n", "(Default)" if "True" == settings[2] else ""),
-                           ("False", "False\n", "(Default)" if "False" == settings[2] else "")]
+            suggestions = [("True", "True", "(Default)" if "True" == settings[2] else ""),
+                           ("False", "False", "(Default)" if "False" == settings[2] else "")]
         else:
             suggestions = []
 
         return suggestions
 
     def _walk_suggestions(self, path):
-        device_settings = self.config_spec.get(path[0], {})
+        device_settings = self._get_spec(path[0])
         for i in range(1, len(path) - 1):
             attribute_settings = device_settings.get(path[i], ["", "", ""])
             if attribute_settings[1].startswith("subconfig"):
                 settings_name = attribute_settings[1][10:-1]
-                device_settings = self.config_spec.get(settings_name, {})
+                device_settings = self._get_spec(settings_name)
             else:
                 return []
 
@@ -399,18 +455,14 @@ class PythonLanguageServer(MethodDispatcher):
         token_start = self._get_start_of_token_at_position(document.lines, position)
         path, current_range = self._get_position_path(document.config_roundtrip, token_start)
 
-        root_spec = self.config_spec.get(path[0], {}) if path else {}
+        root_spec = self._get_spec(path[0]) if path else {}
 
         log.warning("Completions %s %s %s %s", doc_uri, position, path, root_spec)
 
         if len(path) == 0:
             # global level -> all devices are valid
-            if document.machine_wide_config:
-                suggestions = [(key, key + ":\n  ", "") for key, value in self.config_spec.items()
-                               if "machine" in value.get("__valid_in__", [])]
-            else:
-                suggestions = [(key, key + ":\n  ", "") for key, value in self.config_spec.items()
-                               if "mode" in value.get("__valid_in__", [])]
+            suggestions = [(key, key + ":\n  ", "") for key, value in self.config_spec.items()
+                           if document.config_type in value.get("__valid_in__", [])]
         elif len(path) == 1:
             if root_spec.get("__type__", "") in ("config", "list"):
                 suggestions = self._get_settings_suggestion(path[0])
@@ -452,12 +504,12 @@ class PythonLanguageServer(MethodDispatcher):
         }
 
     def _walk_definitions(self, path, token):
-        device_settings = self.config_spec.get(path[0], {})
+        device_settings = self._get_spec(path[0])
         for i in range(1, len(path) - 1):
             attribute_settings = device_settings.get(path[i], ["", "", ""])
             if attribute_settings[1].startswith("subconfig"):
                 settings_name = attribute_settings[1][10:-1]
-                device_settings = self.config_spec.get(settings_name, {})
+                device_settings = self._get_spec(settings_name)
             else:
                 return []
 
@@ -471,7 +523,7 @@ class PythonLanguageServer(MethodDispatcher):
         token_start = self._get_start_of_token_at_position(document.lines, position)
         token, token_range = self._get_current_token(document.lines, token_start)
         path, current_range = self._get_position_path(document.config_roundtrip, token_start)
-        root_spec = self.config_spec.get(path[0], {}) if path else {}
+        root_spec = self._get_spec(path[0]) if path else {}
 
         log.warning("Definitions %s %s %s", token, token_start, token_range)
 
@@ -554,6 +606,9 @@ class PythonLanguageServer(MethodDispatcher):
     def _layout_attribute_settings(self, attribute_settings):
         if not attribute_settings or attribute_settings == ["", "", ""]:
             return ""
+        if attribute_settings == "ignore":
+            return "Not validated by your IDE."
+
         if attribute_settings[0] == "single":
             prefix = ""
         elif attribute_settings[0] == "list":
@@ -582,12 +637,13 @@ class PythonLanguageServer(MethodDispatcher):
             return "{}{}. Default: {}".format(prefix, type, attribute_settings[2])
 
     def _walk_hover(self, path, token):
-        device_settings = self.config_spec.get(path[0], {})
+        device_settings = self._get_spec(path[0])
         for i in range(1, len(path)):
             attribute_settings = device_settings.get(path[i], ["", "", ""])
             if attribute_settings[1].startswith("subconfig"):
                 settings_name = attribute_settings[1][10:-1]
-                device_settings = self.config_spec.get(settings_name, {})
+                device_settings = self._get_spec(settings_name)
+
             else:
                 return {'contents': ""}
 
@@ -602,7 +658,7 @@ class PythonLanguageServer(MethodDispatcher):
         token, token_range = self._get_current_token(document.lines, token_start)
         path, current_range = self._get_position_path(document.config_roundtrip, token_start)
 
-        root_spec = self.config_spec.get(path[0], {}) if path else {}
+        root_spec = self._get_spec(path[0]) if path else {}
 
         if len(path) == 1:
             if root_spec.get("__type__", "") in ("config", "list"):
@@ -617,32 +673,405 @@ class PythonLanguageServer(MethodDispatcher):
         else:
             return {'contents': ""}
 
+    def _walk_diagnostics_root(self, document, config):
+        diagnostics = []
+        lines = document.lines
+        if document.config_type in (TYPE_MACHINE, TYPE_MODE):
+            if not document.source.startswith("#config_version=5") and len(lines) > 1:
+                diagnostics.append(
+                    {
+                        'source': 'mpf-ls',
+                        'code': "1",
+                        'range': {
+                            'start': {
+                                'line': 0,
+                                'character': 0
+                            },
+                            'end': {
+                                'line': 0,
+                                'character': len(lines[0])
+                            }
+                        },
+                        'message': "Config version is missing/wrong. Put #config_version=5 into the first line.",
+                        'severity': lsp.DiagnosticSeverity.Error,
+                    }
+                )
+        elif document.config_type == TYPE_SHOW:
+            if not document.source.startswith("#show_version=5") and len(lines) > 1:
+                diagnostics.append(
+                    {
+                        'source': 'mpf-ls',
+                        'code': "2",
+                        'range': {
+                            'start': {
+                                'line': 0,
+                                'character': 0
+                            },
+                            'end': {
+                                'line': 0,
+                                'character': len(lines[0])
+                            }
+                        },
+                        'message': "Config version is missing/wrong. Put #show_version=5 into the first line.",
+                        'severity': lsp.DiagnosticSeverity.Error,
+                    }
+                )
+
+        if hasattr(config, "lc"):
+            for key, lc in config.lc.data.items():
+                if key not in self.config_spec:
+                    diagnostics.append(
+                        {
+                            'source': 'mpf-ls',
+                            'code': "3",
+                            'range': self._range_from_lc(document, lc),
+                            'message': "Unknown config key.",
+                            'severity': lsp.DiagnosticSeverity.Warning,
+                        }
+                    )
+                elif document.config_type not in self.config_spec[key].get("__valid_in__", []):
+                    diagnostics.append(
+                        {
+                            'source': 'mpf-ls',
+                            'code': "4",
+                            'range': self._range_from_lc(document, lc),
+                            'message': 'Config key "{}" not valid in {} config. It is only valid in: {}'.format(
+                                key, document.config_type, self.config_spec[key].get("__valid_in__", [])),
+                            'severity': lsp.DiagnosticSeverity.Warning,
+                        }
+                    )
+
+            for key, lc in config.lc.data.items():
+                root_spec = self._get_spec(key)
+                if root_spec:
+                    diagnostics.extend(self._walk_diagnostics_devices(document, config[key], root_spec, key, lc))
+
+        return diagnostics
+
+    def _walk_diagnostics_devices(self, document, config, root_spec, root_key, lc):
+        diagnostics = []
+
+        type = root_spec.get("__type__", "")
+
+        if not type:
+            diagnostics.append(
+                {
+                    'source': 'mpf-ls',
+                    'code': "5",
+                    'range': self._range_from_lc(document, lc),
+                    'message': 'Config key "{}" has an invalid type.'.format(root_key),
+                    'severity': lsp.DiagnosticSeverity.Warning,
+                }
+            )
+        elif type == "list":
+            if not isinstance(config, (list, str)):
+                diagnostics.append(
+                    {
+                        'source': 'mpf-ls',
+                        'code': "6",
+                        'range': self._range_from_lc(document, lc),
+                        'message': 'Expected a list.',
+                        'severity': lsp.DiagnosticSeverity.Warning,
+                    }
+                )
+        elif type == "config":
+            diagnostics.extend(self._walk_diagnostics(document, config, [root_key], root_key, lc))
+        elif type in ("device", "config_dict"):
+            if not isinstance(config, dict) or not hasattr(config, "lc"):
+                diagnostics.append(
+                    {
+                        'source': 'mpf-ls',
+                        'code': "8",
+                        'range': self._range_from_lc(document, lc),
+                        'message': 'Expected a dictionary.',
+                        'severity': lsp.DiagnosticSeverity.Warning,
+                    }
+                )
+            else:
+                for key, lc_child in config.lc.data.items():
+                    diagnostics.extend(self._walk_diagnostics(document, config[key], [root_key], root_key, lc_child))
+        elif type == "config_player":
+            # TODO: implement
+            pass
+        elif type == "named_lists":
+            # TODO: implement
+            pass
+        else:
+            diagnostics.append(
+                {
+                    'source': 'mpf-ls',
+                    'code': "99",
+                    'range': self._range_from_lc(document, lc),
+                    'message': 'Config key "{}" has type {} which is not implemented yet.'.format(root_key, type),
+                    'severity': lsp.DiagnosticSeverity.Information,
+                }
+            )
+
+        return diagnostics
+
+    def _walk_diagnostics_dict(self, document, config, path, lc, key_spec):
+        diagnostics = []
+        if not isinstance(config, dict):
+            diagnostics.append(
+                {
+                    'source': 'mpf-ls',
+                    'code': "8",
+                    'range': self._range_from_lc(document, lc),
+                    'message': 'Expected a dictionary.',
+                    'severity': lsp.DiagnosticSeverity.Warning,
+                }
+            )
+        else:
+            lines = document.lines
+            dict_key_spec, dict_value_spec = key_spec[1].split(":", 1)
+            if hasattr(config, "lc"):
+                for dict_key, dict_key_lc in config.lc.data.items():
+                    dict_value = config[dict_key]
+                    dict_value_lc = [dict_key_lc[2], dict_key_lc[3], dict_key_lc[2],
+                                     len(lines[dict_key_lc[2]])]
+                    diagnostics.extend(self._walk_diagnostics_value(document, dict_key, path,
+                                                                    dict_key_spec, dict_key_lc))
+                    diagnostics.extend(self._walk_diagnostics_value(document, dict_value, path,
+                                                                    dict_value_spec, dict_value_lc))
+            else:
+                dict_lc = self._range_from_lc(document, lc)
+                for dict_key, dict_value in config.items():
+                    diagnostics.extend(self._walk_diagnostics_value(document, dict_key, path,
+                                                                    dict_key_spec, dict_lc))
+                    diagnostics.extend(self._walk_diagnostics_value(document, dict_value, path,
+                                                                    dict_value_spec, dict_lc))
+
+        return diagnostics
+
+    def _get_spec(self, spec_name_str):
+        spec_names = spec_name_str.split(",")
+        spec = deepcopy(self.config_spec.get(spec_names[0], {}))
+        for spec_name in spec_names[1:]:
+            spec.update(self.config_spec.get(spec_name, {}))
+
+        if spec.get("__type__") == "device":
+            spec.update(self.config_spec["device"])
+        if spec.get("__parent__", None):
+            spec.update(self.config_spec.get(spec["__parent__"], {}))
+        return spec
+
+    def _walk_diagnostics(self, document, config, path, spec_name, lc):
+        diagnostics = []
+        lines = document.lines
+        if not isinstance(config, dict) or not hasattr(config, "lc"):
+            diagnostics.append(
+                {
+                    'source': 'mpf-ls',
+                    'code': "9",
+                    'range': self._range_from_lc(document, lc),
+                    'message': 'Expected a dictionary.',
+                    'severity': lsp.DiagnosticSeverity.Warning,
+                }
+            )
+        else:
+            spec = self._get_spec(spec_name)
+            for key, child_lc in config.lc.data.items():
+                if key in spec:
+                    key_spec = spec[key]
+                    if key_spec == "ignore":
+                        continue
+                    try:
+                        if str(key_spec[2]) == str(config[key]):
+                            diagnostics.append(
+                                {
+                                    'source': 'mpf-ls',
+                                    'code': "10",
+                                    'range': self._range_after_lc(document, child_lc),
+                                    'message': 'Value is equal to default.',
+                                    'severity': lsp.DiagnosticSeverity.Information,
+                                }
+                            )
+                    except:
+                        pass
+
+                    if key_spec[0] == "single":
+                        if not hasattr(config[key], "lc"):
+                            value_lc = [child_lc[2], child_lc[3], child_lc[2], len(lines[child_lc[2]])]
+                        else:
+                            value_lc = config[key].lc
+                        diagnostics.extend(self._walk_diagnostics_value(document, config[key], path + [key],
+                                                                        key_spec[1], value_lc))
+                    elif key_spec[0] == "dict":
+                        diagnostics.extend(self._walk_diagnostics_dict(document, config[key], path + [key], child_lc,
+                                                                       key_spec))
+                    elif key_spec[0] == "event_handler":
+                        try:
+                            event_config = Util.event_config_to_dict(config[key])
+                        except Exception as e:
+                            diagnostics.append(
+                                {
+                                    'source': 'mpf-ls',
+                                    'code': "14",
+                                    'range': self._range_after_lc(document, child_lc),
+                                    'message': 'Could not convert event handler config.: {}'.format(e),
+                                    'severity': lsp.DiagnosticSeverity.Error,
+                                }
+                            )
+                        else:
+                            diagnostics.extend(self._walk_diagnostics_dict(document, event_config, path + [key],
+                                                                           child_lc, key_spec))
+                    elif key_spec[0] == "list":
+                        try:
+                            list = Util.string_to_list(config[key])
+                        except Exception as e:
+                            diagnostics.append(
+                                {
+                                    'source': 'mpf-ls',
+                                    'code': "999",
+                                    'range': self._range_after_lc(document, child_lc),
+                                    'message': 'Expected a list: {}'.format(e),
+                                    'severity': lsp.DiagnosticSeverity.Warning,
+                                }
+                            )
+                        else:
+                            if hasattr(config[key], "lc"):
+                                for index, element_lc in config[key].lc.data.items():
+                                    element = config[key][index]
+                                    diagnostics.extend(self._walk_diagnostics_value(document, element, path + [key],
+                                                                                    key_spec[1], element_lc))
+                            else:
+                                element_lc = [child_lc[0], child_lc[1], child_lc[2], len(lines[child_lc[2]])]
+                                for element in list:
+                                    diagnostics.extend(self._walk_diagnostics_value(document, element, path + [key],
+                                                                                    key_spec[1], element_lc))
+
+                    else:
+                        diagnostics.append(
+                            {
+                                'source': 'mpf-ls',
+                                'code': "12",
+                                'range': self._range_from_lc(document, child_lc),
+                                'message': 'Expected list "{}" in {}.'.format(key_spec[0], key, path),
+                                'severity': lsp.DiagnosticSeverity.Information,
+                            }
+                        )
+
+                elif "__allow_others__" not in spec:
+                    diagnostics.append(
+                        {
+                            'source': 'mpf-ls',
+                            'code': "10",
+                            'range': self._range_from_lc(document, child_lc),
+                            'message': 'Unknown config key "{}" in {}.'.format(key, path),
+                            'severity': lsp.DiagnosticSeverity.Warning,
+                        }
+                    )
+            for key, validator in spec.items():
+                if validator and len(validator) == 3 and validator[2] == "" and key not in config:
+                    diagnostics.append(
+                        {
+                            'source': 'mpf-ls',
+                            'code': "11",
+                            'range': self._range_from_lc(document, lc),
+                            'message': 'Missing required key "{}".'.format(key),
+                            'severity': lsp.DiagnosticSeverity.Warning,
+                        }
+                    )
+
+        return diagnostics
+
+    def _walk_diagnostics_value(self, document, config, path, value_type, value_lc):
+        diagnostics = []
+        if value_type.startswith("subconfig"):
+            spec_name = value_type[10:-1]
+            diagnostics.extend(self._walk_diagnostics(document, config, path, spec_name, value_lc))
+        elif value_type.startswith("machine"):
+            if config != "None":
+                device_type = value_type[8:-1]
+                found = self._get_definitions(device_type, config)
+                if not found:
+                    diagnostics.append(
+                        {
+                            'source': 'mpf-ls',
+                            'code': "12",
+                            'range': self._range_from_lc(document, value_lc),
+                            'message': 'Could not find {} of type {}.'.format(config, device_type),
+                            'severity': lsp.DiagnosticSeverity.Warning,
+                        }
+                    )
+        elif value_type.startswith("template_"):
+            # TODO: validate templates
+            pass
+        else:
+            try:
+                self.validator.validate_item(config, value_type, (("", ""), ""))
+            except ConfigFileError as e:
+                diagnostics.append(
+                    {
+                        'source': 'mpf-validator',
+                        'code': e._error_no,
+                        'range': self._range_from_lc(document, value_lc),
+                        'message': str(e),
+                        'severity': lsp.DiagnosticSeverity.Error,
+                    }
+                )
+            except Exception as e:
+                diagnostics.append(
+                    {
+                        'source': 'mpf-validator',
+                        'code': "internal error",
+                        'range': self._range_from_lc(document, value_lc),
+                        'message': str(e),
+                        'severity': lsp.DiagnosticSeverity.Error,
+                    }
+                )
+
+        return diagnostics
+
     @_utils.debounce(LINT_DEBOUNCE_S, keyed_by='doc_uri')
     def lint(self, doc_uri, is_saved):
-        diagnostics = [
-            # {
-            #     'source': 'flake8',
-            #     'code': "1337",
-            #     'range': {
-            #         'start': {
-            #             'line': 0,
-            #             'character': 0
-            #         },
-            #         'end': {
-            #             'line': 1,
-            #             # no way to determine the column
-            #             'character': 10
-            #         }
-            #     },
-            #     'message': "Woho",
-            #     # no way to determine the severity using the legacy api
-            #     'severity': lsp.DiagnosticSeverity.Warning,
-            # }
-        ]
-
         # Since we're debounced, the document may no longer be open
         workspace = self._match_uri_to_workspace(doc_uri)
         if doc_uri in workspace.documents:
+            document = workspace.get_document(doc_uri)
+            try:
+                diagnostics = self._walk_diagnostics_root(document, document.config_roundtrip)
+            except Exception as e:
+                tb = traceback.format_exc()
+                diagnostics = [
+                    {
+                        'source': 'mpf-ls',
+                        'code': "998",
+                        'range': {
+                            'start': {
+                                'line': 0,
+                                'character': 0
+                            },
+                            'end': {
+                                'line': 0,
+                                'character': len(document.lines[0])
+                            }
+                        },
+                        'message': "Internal error while verifying: {} {}".format(e, tb),
+                        'severity': lsp.DiagnosticSeverity.Error,
+                    }
+                ]
+
+            if document.parsing_failed:
+                diagnostics.append(
+                    {
+                        'source': 'mpf-ls',
+                        'code': "997",
+                        'range': {
+                            'start': {
+                                'line': 0,
+                                'character': 0
+                            },
+                            'end': {
+                                'line': 0,
+                                'character': len(document.lines[0])
+                            }
+                        },
+                        'message': "Parsing of yaml failed.",
+                        'severity': lsp.DiagnosticSeverity.Warning,
+                    }
+                )
+
             workspace.publish_diagnostics(
                 doc_uri,
                 diagnostics
