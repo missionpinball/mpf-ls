@@ -7,6 +7,7 @@ import traceback
 from copy import deepcopy
 from functools import partial
 
+from mpf.core.config_processor import ConfigProcessor
 from mpf.core.config_validator import ConfigValidator
 from mpf.core.utility_functions import Util
 from mpf.exceptions.config_file_error import ConfigFileError
@@ -105,8 +106,9 @@ class PythonLanguageServer(MethodDispatcher):
         self._dispatchers = []
         self._shutdown = False
 
-        self.validator = ConfigValidator(None, True, False)
-        self.config_spec = self.validator.get_config_spec()
+        config_processor = ConfigProcessor(True, True)
+        self.config_spec = config_processor.load_config_spec()
+        self.validator = ConfigValidator(None, self.config_spec)
 
     def start(self):
         """Entry point for the server."""
@@ -617,6 +619,8 @@ class PythonLanguageServer(MethodDispatcher):
             prefix = "Dictionary of "
         elif attribute_settings[0] == "event_handler":
             return "List of event handlers. Default: {}".format(attribute_settings[2])
+        elif attribute_settings[0] == "event_list":
+            return "List of events. Default: {}".format(attribute_settings[2])
         else:
             prefix = attribute_settings[0]
 
@@ -915,7 +919,7 @@ class PythonLanguageServer(MethodDispatcher):
                         else:
                             diagnostics.extend(self._walk_diagnostics_dict(document, event_config, path + [key],
                                                                            child_lc, key_spec))
-                    elif key_spec[0] == "list":
+                    elif key_spec[0] in ("list", "event_list"):
                         try:
                             list = Util.string_to_list(config[key])
                         except Exception as e:
@@ -988,7 +992,7 @@ class PythonLanguageServer(MethodDispatcher):
                     diagnostics.append(
                         {
                             'source': 'mpf-ls',
-                            'code': "12",
+                            'code': "13",
                             'range': self._range_from_lc(document, value_lc),
                             'message': 'Could not find {} of type {}.'.format(config, device_type),
                             'severity': lsp.DiagnosticSeverity.Warning,
