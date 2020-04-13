@@ -24,7 +24,7 @@ Then add ``mpfls`` as ``Raw command`` for ``yaml`` files in
 VSCode
 ~~~~~~
 
-For vsCode install the extension in `vscode-client <https://github.com/missionpinball/mpf-ls/tree/master/vscode-client>`_.
+For vsCode install the extension in `vscode-client <vscode-client>`_.
 
 Emacs
 ~~~~~
