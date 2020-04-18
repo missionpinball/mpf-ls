@@ -605,6 +605,14 @@ class PythonLanguageServer(MethodDispatcher):
         else:
             return None
 
+    def _layout_attribute_defaults(self, default_settings):
+        if default_settings == "None":
+            return "Defaults to empty."
+        elif default_settings == "":
+            return "Required attribute."
+        else:
+            return "Default: {}".format(default_settings)
+
     def _layout_attribute_settings(self, attribute_settings):
         if not attribute_settings or attribute_settings == ["", "", ""]:
             return ""
@@ -614,15 +622,17 @@ class PythonLanguageServer(MethodDispatcher):
         if attribute_settings[0] == "single":
             prefix = ""
         elif attribute_settings[0] == "list":
+            if attribute_settings[1] == "event_handler":
+                return "List of event handlers. {}".format(self._layout_attribute_defaults(attribute_settings[2]))
+            elif attribute_settings[1] == "event_list":
+                return "List of events posted. {}".format(self._layout_attribute_defaults(attribute_settings[2]))
             prefix = "List of "
         elif attribute_settings[0] == "dict":
             prefix = "Dictionary of "
         elif attribute_settings[0] == "event_handler":
-            return "List of event handlers. Default: {}".format(attribute_settings[2])
-        elif attribute_settings[0] == "event_list":
-            return "List of events. Default: {}".format(attribute_settings[2])
+            return "Dict or list of event handlers. Default: {}".format(attribute_settings[2])
         else:
-            prefix = attribute_settings[0]
+            prefix = attribute_settings[0] + " "
 
         if attribute_settings[1].startswith("machine"):
             device_type = attribute_settings[1][8:-1]
@@ -633,12 +643,7 @@ class PythonLanguageServer(MethodDispatcher):
         if not prefix:
             type = type.capitalize()
 
-        if attribute_settings[2] == "None":
-            return "{}{}. Defaults to empty.".format(prefix, type)
-        elif attribute_settings[2] == "":
-            return "{}{}. Required attribute.".format(prefix, type)
-        else:
-            return "{}{}. Default: {}".format(prefix, type, attribute_settings[2])
+        return "{}{}. {}".format(prefix, type, self._layout_attribute_defaults(attribute_settings[2]))
 
     def _walk_hover(self, path, token):
         device_settings = self._get_spec(path[0])
@@ -895,7 +900,10 @@ class PythonLanguageServer(MethodDispatcher):
 
                     if key_spec[0] == "single":
                         if not hasattr(config[key], "lc"):
-                            value_lc = [child_lc[2], child_lc[3], child_lc[2], len(lines[child_lc[2]])]
+                            if config[key]:
+                                value_lc =  [child_lc[2], child_lc[3], child_lc[2], len(lines[child_lc[2]])]
+                            else:
+                                value_lc = child_lc
                         else:
                             value_lc = config[key].lc
                         diagnostics.extend(self._walk_diagnostics_value(document, config[key], path + [key],
@@ -1010,7 +1018,7 @@ class PythonLanguageServer(MethodDispatcher):
                         'source': 'mpf-validator',
                         'code': e._error_no,
                         'range': self._range_from_lc(document, value_lc),
-                        'message': str(e),
+                        'message': str(e)+str(value_lc)+str(self._range_from_lc(document, value_lc)),
                         'severity': lsp.DiagnosticSeverity.Error,
                     }
                 )
