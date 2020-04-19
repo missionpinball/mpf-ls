@@ -1,6 +1,8 @@
 # Copyright 2017 Palantir Technologies, Inc.
 import io
 import logging
+import pathlib
+
 import mpfmc
 
 import mpf
@@ -10,6 +12,7 @@ import re
 from mpf.core.utility_functions import Util
 from mpf.file_interfaces.yaml_interface import YamlInterface
 from mpf.file_interfaces.yaml_roundtrip import YamlRoundtrip
+from mpf.parsers.event_reference_parser import EventReferenceParser
 
 from . import lsp, uris, _utils
 
@@ -37,11 +40,12 @@ class Workspace(object):
         self._root_path = uris.to_fs_path(self._root_uri)
         self._docs = {}
         self._cached_config = {}
-        self.mpf_path = os.path.abspath(mpf.__file__)
-        self.mc_path = os.path.abspath(mpfmc.__file__)
+        self.mpf_path = str(pathlib.Path(mpf.__file__).parent.absolute())
+        self.mc_path = str(pathlib.Path(mpfmc.__file__).parent.absolute())
         self.config_path = os.path.join(self._root_path, "config")
         self.mode_path = os.path.join(self._root_path, "modes")
         self.show_path = os.path.join(self._root_path, "shows")
+        self._device_events = None
 
     def get_root_document(self):
         return self.get_document(uris.from_fs_path(os.path.join(self.config_path, "config.yaml")))
@@ -51,6 +55,14 @@ class Workspace(object):
 
     def get_mc_config(self):
         return self.get_document(uris.from_fs_path(os.path.join(self.mc_path, "mcconfig.yaml")))
+
+    def get_device_events(self):
+        if self._device_events is not None:
+           return self._device_events
+
+        event_parser = EventReferenceParser()
+        self._device_events = event_parser.get_events_from_path([self.mpf_path, self.mc_path, self._root_path])
+        return self._device_events
 
     def get_complete_config(self):
         if self._cached_config:

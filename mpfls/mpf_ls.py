@@ -1,9 +1,11 @@
 # Copyright 2017 Palantir Technologies, Inc.
 import logging
 import os
+import re
 import socketserver
 import threading
 import traceback
+from collections import namedtuple
 from copy import deepcopy
 from functools import partial
 
@@ -14,12 +16,16 @@ from mpf.exceptions.config_file_error import ConfigFileError
 from pyls_jsonrpc.dispatchers import MethodDispatcher
 from pyls_jsonrpc.endpoint import Endpoint
 from pyls_jsonrpc.streams import JsonRpcStreamReader, JsonRpcStreamWriter
+from typing import List
 
 from . import lsp, _utils, uris
 from .config import config
 from .workspace import Workspace, TYPE_MACHINE, TYPE_MODE, TYPE_SHOW
 
 log = logging.getLogger(__name__)
+
+EventInstance = namedtuple("EventInstance", ["event_name", "file_name", "config_section", "class_label",
+                                             "desc", "args", "device_name", "original_name"])
 
 
 LINT_DEBOUNCE_S = 0.5  # 500 ms
@@ -292,7 +298,14 @@ class PythonLanguageServer(MethodDispatcher):
             else:
                 insert_text = key + ": "
 
-            suggestions.append((key, insert_text, ""))
+            suggestions.append({
+                    'label': key,
+                    'kind': lsp.CompletionItemKind.Value,
+                    'detail': "Setting {}".format(key),
+                    'documentation': "Doc: Setting {}".format(key),
+                    'sortText': key,
+                    'insertText': insert_text
+                })
 
         return suggestions
 
@@ -345,6 +358,13 @@ class PythonLanguageServer(MethodDispatcher):
             device_type = settings[1][8:-1]
             found = self._get_definitions(device_type, device_name)
             return found
+        elif settings[1] == "event_handler" or settings[0] == "event_handler":
+            events = [event for event in self._get_known_events() if event.event_name == device_name]
+            found = []
+            for event in events:
+                if event.config_section and event.device_name:
+                    found.extend(self._get_definitions(event.config_section, event.device_name))
+            return found
 
         return None
 
@@ -396,20 +416,180 @@ class PythonLanguageServer(MethodDispatcher):
                 }
             }
 
+    def _event_replace_placeholders(self, placeholders, event_name, event, device_name, device_config):
+        event_instances = []
+        for placeholder in placeholders:
+            if placeholder == "name":
+                event_name = event_name.replace("({})".format(placeholder), device_name)
+            else:
+                if placeholder not in self.config_spec[event.config_section]:
+                    log.warning("Broken placeholder %s in event %s", placeholder, event)
+                elif placeholder in device_config:
+                    event_name = event_name.replace("({})".format(placeholder), device_config[placeholder])
+                elif self.config_spec[event.config_section][placeholder][2]:
+                    event_name = event_name.replace("({})".format(placeholder),
+                                                    self.config_spec[event.config_section][placeholder][2])
+
+        event_instances.append(EventInstance(event_name=event_name,
+                                             file_name=event.file_name,
+                                             config_section=event.config_section,
+                                             class_label=event.class_label,
+                                             desc=event.desc,
+                                             args=event.args,
+                                             original_name=event.event_name,
+                                             device_name=device_name))
+        return event_instances
+
+    def _get_known_events(self) -> List[EventInstance]:
+        """Return all known events."""
+        known_events = []
+        # get device event and merge them with our config
+        device_events = self.workspace.get_device_events()
+        config = self.workspace.get_complete_config()
+        for event in device_events:
+            if event.config_section and event.config_section in config:
+                placeholders = re.findall(r'\(([^)]+)\)', event.event_name)
+                for device_name, device_config in config[event.config_section].items():
+                    if "tag" in placeholders:
+                        log.warning("TAG %s %s", device_config.get("tags", []), device_name)
+                        for tag in Util.string_to_list(device_config.get("tags", "")):
+                            known_events.extend(self._event_replace_placeholders(placeholders,
+                                                                                 event.event_name.replace("(tag)", tag),
+                                                                                 event, device_name, device_config))
+                    else:
+                        known_events.extend(self._event_replace_placeholders(placeholders, event.event_name,
+                                                                             event, device_name, device_config))
+
+        # get posted events from our config
+        for key, element_config in config.items():
+            spec = self._get_spec(key)
+            if spec.get("__type__", "") == "config":
+                known_events.extend(self._walk_config_for_event_handlers(spec, element_config, [key], ""))
+            elif spec.get("__type__", "") == "list":
+                # ignored here
+                pass
+            elif spec.get("__type__", "") == "config_player":
+                # TODO: handle
+                pass
+            elif spec.get("__type__", "") == "device":
+                for device_name, device_config in element_config.items():
+                    known_events.extend(self._walk_config_for_event_handlers(spec, device_config, key, device_name))
+
+        return known_events
+
+    def _walk_config_for_event_handlers(self, spec, config, device_type, device_name):
+        events = []
+        if not isinstance(config, dict):
+            log.warning("INCORRECT CONFIG %s %s %s", device_type, device_name, config)
+            return []
+        for key, value in config.items():
+            if key not in spec:
+                continue
+            if len(spec[key]) != 3:
+                log.warning("WEIRD SPEC %s %s %s %s", device_type, device_name, key, spec[key])
+                continue
+            if spec[key][1] == "event_posted":
+                if spec[key][0] == "list":
+                    for event in Util.string_to_event_list(value):
+                        events.append(EventInstance(event_name=event,
+                                                    file_name="",
+                                                    config_section=device_type,
+                                                    class_label=device_type,    # not quite correct
+                                                    desc="Event posted by ",    # TODO
+                                                    args={},
+                                                    original_name=value,
+                                                    device_name=device_name))
+                else:
+                    events.append(EventInstance(event_name=value,
+                                                file_name="",
+                                                config_section=device_type,
+                                                class_label=device_type,    # not quite correct
+                                                desc="Event posted by ",    # TODO
+                                                args={},
+                                                original_name=value,
+                                                device_name=device_name))
+        return events
+
+    @staticmethod
+    def _format_event_reference(event: EventInstance):
+        desc = event.desc + "\n"
+        for attribute, attribute_desc in event.args.items():
+            desc += "\n{}: {}".format(attribute, attribute_desc)
+
+        if event.class_label:
+            desc += "\nPosted by device {}".format(event.class_label)
+
+        desc += "\nDefined in: {}".format(event.file_name)
+
+        return desc
+
+    @staticmethod
+    def _format_event_label(event: EventInstance):
+        label = "Event: {}".format(event.original_name)
+        if event.class_label:
+            label += " from {}".format(event.class_label)
+            if event.device_name:
+                label += " " + event.device_name
+        elif event.config_section:
+            label += " from {}".format(event.config_section)
+
+        return label
+
     def _get_settings_value_suggestions(self, settings):
         if settings[1].startswith("enum"):
             values = settings[1][5:-1].split(",")
-            suggestions = [(value, value, "") for value in values]
+            suggestions = [{
+                    'label': value + (" (Default)" if value == settings[2] else ""),
+                    'kind': lsp.CompletionItemKind.Value,
+                    'detail': "Enum value {}".format(value),
+                    'documentation': "TODO: Add docs",
+                    'sortText': value,
+                    'insertText': value
+                } for value in values]
         elif settings[1].startswith("machine"):
             device = settings[1][8:-1]
             devices = self.workspace.get_complete_config().get(device, {})
-            suggestions = [(device, device, "") for device in devices]
+            suggestions = [{
+                    'label': device_name,
+                    'kind': lsp.CompletionItemKind.Value,
+                    'detail': "Reference to device {} of type {}".format(device_name, device),
+                    'documentation': "TODO: Add docs",
+                    'sortText': device_name,
+                    'insertText': device_name
+                } for device_name in devices]
         elif settings[1].startswith("subconfig"):
             settings_name = settings[1][10:-1]
             suggestions = self._get_settings_suggestion(settings_name)
+        elif settings[1] == "event_handler" or settings[0] == "event_handler":
+            events = self._get_known_events()
+            suggestions = [
+                {
+                    'label': event.event_name,
+                    'kind': lsp.CompletionItemKind.Value,
+                    'detail': self._format_event_label(event),
+                    'documentation': self._format_event_reference(event),
+                    'sortText': event.event_name,
+                    'insertText': event.event_name
+                } for event in events]
         elif settings[1] == "bool":
-            suggestions = [("True", "True", "(Default)" if "True" == settings[2] else ""),
-                           ("False", "False", "(Default)" if "False" == settings[2] else "")]
+            suggestions = [
+                {
+                    'label': "true" + (" (Default)" if "true" == settings[2].lower() else ""),
+                    'kind': lsp.CompletionItemKind.Value,
+                    'detail': "Boolean true",
+                    'documentation': "This option is activated.",
+                    'sortText': "true",
+                    'insertText': "true"
+                },
+                {
+                    'label': "false" + (" (Default)" if "false" == settings[2].lower() else ""),
+                    'kind': lsp.CompletionItemKind.Value,
+                    'detail': "Boolean false",
+                    'documentation': "This option is deactivated.",
+                    'sortText': "false",
+                    'insertText': "false"
+                },
+            ]
         else:
             suggestions = []
 
@@ -488,21 +668,9 @@ class PythonLanguageServer(MethodDispatcher):
         else:
             suggestions = []
 
-        for key, insertText, value in suggestions:
-            completions.append(
-                {
-                    'label': key,
-                    'kind': lsp.CompletionItemKind.Property,
-                    'detail': "{}".format(value),
-                    'documentation': "{} {}".format(key, value),
-                    'sortText': key,
-                    'insertText': insertText
-                }
-            )
-
         return {
             'isIncomplete': False,
-            'items': completions
+            'items': suggestions
         }
 
     def _walk_definitions(self, path, token):
