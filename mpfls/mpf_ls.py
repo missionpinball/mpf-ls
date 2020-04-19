@@ -459,6 +459,15 @@ class PythonLanguageServer(MethodDispatcher):
                     else:
                         known_events.extend(self._event_replace_placeholders(placeholders, event.event_name,
                                                                              event, device_name, device_config))
+            elif not event.config_section:
+                known_events.append(EventInstance(event_name=event.event_name,
+                                                  file_name=event.file_name,
+                                                  config_section="",
+                                                  class_label="",
+                                                  desc=event.desc,
+                                                  args=event.args,
+                                                  original_name=event.event_name,
+                                                  device_name=""))
 
         # get posted events from our config
         for key, element_config in config.items():
