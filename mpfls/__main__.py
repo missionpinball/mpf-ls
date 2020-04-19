@@ -4,7 +4,7 @@ import json
 import logging
 import logging.config
 import sys
-from .python_ls import start_io_lang_server, start_tcp_lang_server, PythonLanguageServer
+from .mpf_ls import start_io_lang_server, start_tcp_lang_server, PythonLanguageServer
 
 LOG_FORMAT = "%(asctime)s UTC - %(levelname)s - %(name)s - %(message)s"
 
