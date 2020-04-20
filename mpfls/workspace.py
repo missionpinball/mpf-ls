@@ -12,7 +12,8 @@ import re
 from mpf.core.utility_functions import Util
 from mpf.file_interfaces.yaml_interface import YamlInterface
 from mpf.file_interfaces.yaml_roundtrip import YamlRoundtrip
-from mpf.parsers.event_reference_parser import EventReferenceParser
+from mpf.parsers.event_reference_parser import EventReferenceParser, EventReference
+from typing import List
 
 from . import lsp, uris, _utils
 
@@ -56,7 +57,7 @@ class Workspace(object):
     def get_mc_config(self):
         return self.get_document(uris.from_fs_path(os.path.join(self.mc_path, "mcconfig.yaml")))
 
-    def get_device_events(self):
+    def get_device_events(self) -> List[EventReference]:
         if self._device_events is not None:
            return self._device_events
 
@@ -69,7 +70,8 @@ class Workspace(object):
             return self._cached_config
 
         root_document = self.get_root_document()
-        config = self._load_document_and_subconfigs(root_document)
+        config = self._load_document_and_subconfigs(self.get_mpf_config())
+        config = Util.dict_merge(config, self._load_document_and_subconfigs(root_document))
         if "modes" in config:
             for mode in config['modes']:
                 path = os.path.join(self.mode_path, mode, "config", "{}.yaml".format(mode))

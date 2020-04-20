@@ -25,8 +25,9 @@ from .workspace import Workspace, TYPE_MACHINE, TYPE_MODE, TYPE_SHOW
 log = logging.getLogger(__name__)
 
 EventInstance = namedtuple("EventInstance", ["event_name", "file_name", "config_section", "class_label",
-                                             "desc", "args", "device_name", "original_name"])
+                                             "desc", "args", "config_attribute", "device_name", "original_name"])
 
+PostedEvent = namedtuple("PostedEvent", ["config_attribute", "event_name", "config_section", "device_name"])
 
 LINT_DEBOUNCE_S = 0.5  # 500 ms
 PARENT_PROCESS_WATCH_INTERVAL = 10  # 10 s
@@ -436,6 +437,7 @@ class PythonLanguageServer(MethodDispatcher):
                                              class_label=event.class_label,
                                              desc=event.desc,
                                              args=event.args,
+                                             config_attribute=event.config_attribute,
                                              original_name=event.event_name,
                                              device_name=device_name))
         return event_instances
@@ -450,10 +452,14 @@ class PythonLanguageServer(MethodDispatcher):
             if event.config_section and event.config_section in config:
                 placeholders = re.findall(r'\(([^)]+)\)', event.event_name)
                 for device_name, device_config in config[event.config_section].items():
-                    if "tag" in placeholders:
-                        log.warning("TAG %s %s", device_config.get("tags", []), device_name)
+                    if event.config_attribute and event.config_attribute in device_config:
+                        # ignore this as it is picked up later by parsing those events
+                        pass
+                    elif "tag" in placeholders:
+                        placeholders_without_tag = list(placeholders)
+                        placeholders_without_tag.remove("tag")
                         for tag in Util.string_to_list(device_config.get("tags", "")):
-                            known_events.extend(self._event_replace_placeholders(placeholders,
+                            known_events.extend(self._event_replace_placeholders(placeholders_without_tag,
                                                                                  event.event_name.replace("(tag)", tag),
                                                                                  event, device_name, device_config))
                     else:
@@ -466,14 +472,16 @@ class PythonLanguageServer(MethodDispatcher):
                                                   class_label="",
                                                   desc=event.desc,
                                                   args=event.args,
+                                                  config_attribute=event.config_attribute,
                                                   original_name=event.event_name,
                                                   device_name=""))
 
         # get posted events from our config
+        posted_events = []
         for key, element_config in config.items():
             spec = self._get_spec(key)
             if spec.get("__type__", "") == "config":
-                known_events.extend(self._walk_config_for_event_handlers(spec, element_config, [key], ""))
+                posted_events.extend(self._walk_config_for_event_handlers(spec, element_config, [key], ""))
             elif spec.get("__type__", "") == "list":
                 # ignored here
                 pass
@@ -482,11 +490,37 @@ class PythonLanguageServer(MethodDispatcher):
                 pass
             elif spec.get("__type__", "") == "device":
                 for device_name, device_config in element_config.items():
-                    known_events.extend(self._walk_config_for_event_handlers(spec, device_config, key, device_name))
+                    posted_events.extend(self._walk_config_for_event_handlers(spec, device_config, key, device_name))
+
+        for posted_event in posted_events:
+            for event_ref in device_events:
+                if event_ref.config_section == posted_event.config_section and \
+                        event_ref.config_attribute == posted_event.config_attribute:
+                    known_events.append(EventInstance(event_name=posted_event.event_name,
+                                                      file_name=event_ref.file_name,
+                                                      config_section=posted_event.config_section,
+                                                      class_label=event_ref.class_label,
+                                                      desc=event_ref.desc,
+                                                      args=event_ref.args,
+                                                      config_attribute=posted_event.config_attribute,
+                                                      original_name=event_ref.event_name,
+                                                      device_name=posted_event.device_name))
+                    break
+            else:
+                known_events.append(EventInstance(event_name=posted_event.event_name,
+                                                  file_name="",
+                                                  config_section=posted_event.config_section,
+                                                  class_label="",
+                                                  desc="Posted event by {}".format(posted_event.config_section),
+                                                  args={},
+                                                  config_attribute=posted_event.config_attribute,
+                                                  original_name=posted_event.event_name,
+                                                  device_name=posted_event.device_name))
 
         return known_events
 
-    def _walk_config_for_event_handlers(self, spec, config, device_type, device_name):
+    @staticmethod
+    def _walk_config_for_event_handlers(spec, config, device_type, device_name) -> List[PostedEvent]:
         events = []
         if not isinstance(config, dict):
             log.warning("INCORRECT CONFIG %s %s %s", device_type, device_name, config)
@@ -500,23 +534,18 @@ class PythonLanguageServer(MethodDispatcher):
             if spec[key][1] == "event_posted":
                 if spec[key][0] == "list":
                     for event in Util.string_to_event_list(value):
-                        events.append(EventInstance(event_name=event,
-                                                    file_name="",
-                                                    config_section=device_type,
-                                                    class_label=device_type,    # not quite correct
-                                                    desc="Event posted by ",    # TODO
-                                                    args={},
-                                                    original_name=value,
-                                                    device_name=device_name))
+                        events.append(PostedEvent(
+                            config_attribute=key,
+                            event_name=event,
+                            config_section=device_type,
+                            device_name=device_name))
                 else:
-                    events.append(EventInstance(event_name=value,
-                                                file_name="",
-                                                config_section=device_type,
-                                                class_label=device_type,    # not quite correct
-                                                desc="Event posted by ",    # TODO
-                                                args={},
-                                                original_name=value,
-                                                device_name=device_name))
+                    events.append(PostedEvent(
+                        config_attribute=key,
+                        event_name=value,
+                        config_section=device_type,
+                        device_name=device_name))
+
         return events
 
     @staticmethod
