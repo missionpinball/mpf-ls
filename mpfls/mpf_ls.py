@@ -271,7 +271,7 @@ class PythonLanguageServer(MethodDispatcher):
         candidate_key = None
         token_range = [line, character, line, character]
 
-        if hasattr(config, "lc"):
+        if hasattr(config, "lc") and config.lc.data:
             for key, lc in config.lc.data.items():
                 if len(lc) == 4 and ((lc[0] <= line and lc[3] <= character) or (lc[1] < character and lc[2] < line)) or \
                         (len(lc) == 2 and lc[0] <= line and lc[1] <= character):
@@ -855,7 +855,7 @@ class PythonLanguageServer(MethodDispatcher):
         device_settings = self._get_spec(path[0])
         for i in range(1, len(path)):
             attribute_settings = device_settings.get(path[i], ["", "", ""])
-            if attribute_settings[1].startswith("subconfig"):
+            if isinstance(attribute_settings, List) and attribute_settings[1].startswith("subconfig"):
                 settings_name = attribute_settings[1][10:-1]
                 device_settings = self._get_spec(settings_name)
 
@@ -1103,8 +1103,9 @@ class PythonLanguageServer(MethodDispatcher):
                             )
                     except:
                         pass
-
-                    if key_spec[0] == "single":
+                    if not isinstance(key_spec, List):
+                        pass
+                    elif key_spec[0] == "single":
                         if not hasattr(config[key], "lc"):
                             if config[key]:
                                 value_lc =  [child_lc[2], child_lc[3], child_lc[2], len(lines[child_lc[2]])]
@@ -1180,7 +1181,7 @@ class PythonLanguageServer(MethodDispatcher):
                         }
                     )
             for key, validator in spec.items():
-                if validator and len(validator) == 3 and validator[2] == "" and key not in config:
+                if isinstance(validator, List) and len(validator) == 3 and validator[2] == "" and key not in config:
                     diagnostics.append(
                         {
                             'source': 'mpf-ls',
