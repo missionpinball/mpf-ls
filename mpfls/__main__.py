@@ -4,7 +4,7 @@ import json
 import logging
 import logging.config
 import sys
-from .mpf_ls import start_io_lang_server, start_tcp_lang_server, PythonLanguageServer
+from .mpf_ls import start_io_lang_server, start_tcp_lang_server, MPFLanguageServer
 
 LOG_FORMAT = "%(asctime)s UTC - %(levelname)s - %(name)s - %(message)s"
 
@@ -56,11 +56,11 @@ def main():
 
     if args.tcp:
         start_tcp_lang_server(args.host, args.port, args.check_parent_process,
-                              PythonLanguageServer)
+                              MPFLanguageServer)
     else:
         stdin, stdout = _binary_stdio()
         start_io_lang_server(stdin, stdout, args.check_parent_process,
-                             PythonLanguageServer)
+                             MPFLanguageServer)
 
 
 def _binary_stdio():

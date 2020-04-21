@@ -1,4 +1,4 @@
-# Copyright 2017 Palantir Technologies, Inc.
+"""MPF Language Server."""
 import logging
 import os
 import re
@@ -19,7 +19,7 @@ from pyls_jsonrpc.streams import JsonRpcStreamReader, JsonRpcStreamWriter
 from typing import List
 
 from . import lsp, _utils, uris
-from .config import config
+from .config import config as lsp_configuration
 from .workspace import Workspace, TYPE_MACHINE, TYPE_MODE, TYPE_SHOW
 
 log = logging.getLogger(__name__)
@@ -37,24 +37,28 @@ CONFIG_FILEs = ('mpfls.cfg')
 
 
 class _StreamHandlerWrapper(socketserver.StreamRequestHandler, object):
+
     """A wrapper class that is used to construct a custom handler class."""
 
     delegate = None
 
     def setup(self):
+        """Setup stream."""
         super(_StreamHandlerWrapper, self).setup()
         # pylint: disable=no-member
         self.delegate = self.DELEGATE_CLASS(self.rfile, self.wfile)
 
     def handle(self):
+        """Handle stream."""
         self.delegate.start()
         # pylint: disable=no-member
         self.SHUTDOWN_CALL()
 
 
 def start_tcp_lang_server(bind_addr, port, check_parent_process, handler_class):
-    if not issubclass(handler_class, PythonLanguageServer):
-        raise ValueError('Handler class must be an instance of PythonLanguageServer')
+    """Start TCP server for language server."""
+    if not issubclass(handler_class, MPFLanguageServer):
+        raise ValueError('Handler class must be an instance of MPFLanguageServer')
 
     def shutdown_server(*args):
         # pylint: disable=unused-argument
@@ -84,20 +88,22 @@ def start_tcp_lang_server(bind_addr, port, check_parent_process, handler_class):
 
 
 def start_io_lang_server(rfile, wfile, check_parent_process, handler_class):
-    if not issubclass(handler_class, PythonLanguageServer):
-        raise ValueError('Handler class must be an instance of PythonLanguageServer')
+    """Start language server on stdin/stdout."""
+    if not issubclass(handler_class, MPFLanguageServer):
+        raise ValueError('Handler class must be an instance of MPFLanguageServer')
     log.info('Starting %s IO language server', handler_class.__name__)
     server = handler_class(rfile, wfile, check_parent_process)
     server.start()
 
 
-class PythonLanguageServer(MethodDispatcher):
-    """ Implementation of the Microsoft VSCode Language Server Protocol
+class MPFLanguageServer(MethodDispatcher):
+
+    """Implementation of the Microsoft VSCode Language Server Protocol.
+
     https://github.com/Microsoft/language-server-protocol/blob/master/versions/protocol-1-x.md
     """
 
     # pylint: disable=too-many-public-methods,redefined-builtin
-
     def __init__(self, rx, tx, check_parent_process=False):
         self.workspace = None
         self.config = None
@@ -129,7 +135,7 @@ class PythonLanguageServer(MethodDispatcher):
             raise KeyError
 
         try:
-            return super(PythonLanguageServer, self).__getitem__(item)
+            return super(MPFLanguageServer, self).__getitem__(item)
         except KeyError:
             # Fallback through extra dispatchers
             for dispatcher in self._dispatchers:
@@ -204,8 +210,8 @@ class PythonLanguageServer(MethodDispatcher):
         self.root_uri = rootUri
         self.workspace = Workspace(rootUri, self._endpoint)
         self.workspaces[rootUri] = self.workspace
-        self.config = config.Config(rootUri, initializationOptions or {},
-                                    processId, _kwargs.get('capabilities', {}))
+        self.config = lsp_configuration.Config(rootUri, initializationOptions or {},
+                                               processId, _kwargs.get('capabilities', {}))
 
         if self._check_parent_process and processId is not None and self.watching_thread is None:
             def watch_parent_process(pid):
@@ -393,7 +399,8 @@ class PythonLanguageServer(MethodDispatcher):
                 }
             }
 
-    def _range_after_lc(self, document, lc):
+    @staticmethod
+    def _range_after_lc(document, lc):
         if len(lc) == 4:
             return {
                 'start': {
