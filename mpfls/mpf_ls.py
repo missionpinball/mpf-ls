@@ -688,8 +688,16 @@ class MPFLanguageServer(MethodDispatcher):
 
         if len(path) == 0:
             # global level -> all devices are valid
-            suggestions = [(key, key + ":\n  ", "") for key, value in self.config_spec.items()
-                           if document.config_type in value.get("__valid_in__", [])]
+            suggestions = [
+                {
+                    'label': key,
+                    'kind': lsp.CompletionItemKind.Text,
+                    'detail': "",
+                    'documentation': "",
+                    'sortText': key,
+                    'insertText': key + ":\n  "
+                } for key, value in self.config_spec.items()
+                if document.config_type in value.get("__valid_in__", [])]
         elif len(path) == 1:
             if root_spec.get("__type__", "") in ("config", "list"):
                 suggestions = self._get_settings_suggestion(path[0])
