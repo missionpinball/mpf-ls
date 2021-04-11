@@ -1088,13 +1088,23 @@ class MPFLanguageServer(MethodDispatcher):
     def _walk_diagnostics(self, document, config, path, spec_name, lc):
         diagnostics = []
         lines = document.lines
-        if not isinstance(config, dict) or not hasattr(config, "lc"):
+        if not hasattr(config, "lc") or not config.lc.data:
+            diagnostics.append(
+                {
+                    'source': 'mpf-ls',
+                    'code': "999",
+                    'range': self._range_from_lc(document, lc),
+                    'message': 'Could not parse config.',
+                    'severity': lsp.DiagnosticSeverity.Hint,
+                }
+            )
+        elif not isinstance(config, dict):
             diagnostics.append(
                 {
                     'source': 'mpf-ls',
                     'code': "9",
                     'range': self._range_from_lc(document, lc),
-                    'message': 'Expected a dictionary.',
+                    'message': 'Expected a dictionary. Got: {}'.format(config),
                     'severity': lsp.DiagnosticSeverity.Warning,
                 }
             )
@@ -1123,7 +1133,7 @@ class MPFLanguageServer(MethodDispatcher):
                     elif key_spec[0] == "single":
                         if not hasattr(config[key], "lc"):
                             if config[key]:
-                                value_lc =  [child_lc[2], child_lc[3], child_lc[2], len(lines[child_lc[2]])]
+                                value_lc = [child_lc[2], child_lc[3], child_lc[2], len(lines[child_lc[2]])]
                             else:
                                 value_lc = child_lc
                         else:
