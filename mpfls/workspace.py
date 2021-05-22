@@ -203,6 +203,8 @@ class Document(object):
             self._load_config_roundtrip()
 
         if not self._config_roundtrip:
+            if not self._last_config_roundtrip:
+                return {}
             return self._last_config_roundtrip
         else:
             return self._config_roundtrip
@@ -222,6 +224,8 @@ class Document(object):
             self._load_config_simple()
 
         if not self._config_simple:
+            if not self._last_config_simple:
+                return {}
             return self._last_config_simple
         else:
             return self._config_simple

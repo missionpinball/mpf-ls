@@ -1,29 +1,11 @@
 import os
 import time
-import unittest
-from unittest.mock import MagicMock
-
-import mpfls
-from mpfls import uris
-from mpfls.mpf_ls import MPFLanguageServer
+from mpfls.tests.mpf_ls_base_test import MpfLsBaseTest, test_config_directory
 
 
-class TestCompletion(unittest.TestCase):
+class TestCompletion(MpfLsBaseTest):
 
-    def get_test_config_dir(self, test_dir):
-        """Get path for test."""
-        return os.path.abspath(os.path.join(mpfls.__path__[0], "tests", "machines", test_dir))
-
-    def get_test_file_path(self, file_parts):
-        return uris.from_fs_path(os.path.join(self.test_root, *file_parts))
-
-    def setUp(self) -> None:
-        self.rx = MagicMock()
-        self.tx = MagicMock()
-        self.mpfls = MPFLanguageServer(self.rx, self.tx)
-        self.test_root = self.get_test_config_dir("completion")
-        self.mpfls.m_initialize(None, rootUri=self.test_root)
-
+    @test_config_directory("completion")
     def test_completion(self):
         self.maxDiff = None
         machine_config = self.get_test_file_path(["config", "config.yaml"])

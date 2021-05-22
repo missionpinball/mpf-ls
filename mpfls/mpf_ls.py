@@ -1270,6 +1270,10 @@ class MPFLanguageServer(MethodDispatcher):
     @_utils.debounce(LINT_DEBOUNCE_S, keyed_by='doc_uri')
     def lint(self, doc_uri, is_saved):
         # Since we're debounced, the document may no longer be open
+        return self.lint_internal(doc_uri)
+
+    def lint_internal(self, doc_uri):
+        """Internal method without debounce."""
         workspace = self._match_uri_to_workspace(doc_uri)
         if doc_uri in workspace.documents:
             document = workspace.get_document(doc_uri)

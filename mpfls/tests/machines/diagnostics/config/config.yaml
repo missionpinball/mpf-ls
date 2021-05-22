@@ -1,0 +1,6 @@
+#config_version=5
+
+switches:
+  s_switch1:
+    number: s11
+    unknown_key_in_switch: 12
