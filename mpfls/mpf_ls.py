@@ -658,27 +658,31 @@ class MPFLanguageServer(MethodDispatcher):
 
         return suggestions
 
-    def _walk_suggestions(self, path):
-        device_settings = self._get_spec(path[0])
-        skip_next = False
-        for i in range(1, len(path) - 1):
-            attribute_settings = device_settings.get(path[i], ["", "", ""])
-            if skip_next:
-                skip_next = False
+    def _walk_suggestion_path(self, device_settings, remaining_path):
+        if len(remaining_path) > 1:
+            attribute_settings = device_settings.get(remaining_path[0], ["", "", ""])
+            if attribute_settings[0] == "dict" and attribute_settings[1].index(":subconfig("):
+                settings_name = attribute_settings[1][attribute_settings[1].index("(") + 1:-1]
+                device_settings = self._get_spec(settings_name)
+                if len(remaining_path) > 2:
+                    return self._walk_suggestion_path(device_settings, remaining_path[2:])
+                else:
+                    return self._get_settings_suggestion(settings_name)
             elif attribute_settings[1].startswith("subconfig"):
                 settings_name = attribute_settings[1][10:-1]
                 device_settings = self._get_spec(settings_name)
-            elif attribute_settings[0] == "dict" and attribute_settings[1].endswith(":subconfig"):
-                raise AssertionError("aaa")
-                settings_name = attribute_settings[1][attribute_settings[1].index("("):-1]
-                device_settings = self._get_spec(settings_name)
-                log.warning(attribute_settings)
-                skip_next = True
+                return self._walk_suggestion_path(device_settings, remaining_path[1:])
             else:
                 return []
+        elif len(remaining_path) == 1:
+            attribute_settings = device_settings.get(remaining_path[0], ["", "", ""])
+            return self._get_settings_value_suggestions(attribute_settings)
+        else:
+            raise AssertionError("Path error")
 
-        attribute_settings = device_settings.get(path[len(path) - 1], ["", "", ""])
-        return self._get_settings_value_suggestions(attribute_settings)
+    def _walk_suggestions(self, path):
+        device_settings = self._get_spec(path[0])
+        return self._walk_suggestion_path(device_settings, path[1:])
 
     def completions(self, doc_uri, position):
         completions = []
@@ -708,6 +712,7 @@ class MPFLanguageServer(MethodDispatcher):
         document = self.workspace.get_document(doc_uri)
         token_start = self._get_start_of_token_at_position(document.lines, position)
         path, current_range = self._get_position_path(document.config_roundtrip, token_start)
+        print("PATH", path, current_range)
 
         root_spec = self._get_spec(path[0]) if path else {}
 
@@ -755,6 +760,7 @@ class MPFLanguageServer(MethodDispatcher):
 
     def _walk_definitions(self, path, token):
         device_settings = self._get_spec(path[0])
+        # TODO: apply the same as for completion here
         for i in range(1, len(path) - 1):
             attribute_settings = device_settings.get(path[i], ["", "", ""])
             if attribute_settings[1].startswith("subconfig"):
@@ -895,14 +901,20 @@ class MPFLanguageServer(MethodDispatcher):
 
     def _walk_hover(self, path, token):
         device_settings = self._get_spec(path[0])
+        skip_next = False
         for i in range(1, len(path)):
+            if skip_next:
+                skip_next = False
+                continue
+
             attribute_settings = device_settings.get(path[i], ["", "", ""])
             if isinstance(attribute_settings, List) and attribute_settings[1].startswith("subconfig"):
                 settings_name = attribute_settings[1][10:-1]
                 device_settings = self._get_spec(settings_name)
             elif isinstance(attribute_settings, List) and attribute_settings[0] == "dict" and "subconfig" in attribute_settings[1]:
-                settings_name = attribute_settings[1][attribute_settings[1].index("("):-1]
+                settings_name = attribute_settings[1][attribute_settings[1].index("(") + 1:-1]
                 device_settings = self._get_spec(settings_name)
+                skip_next = True
             else:
                 return {'contents': ""}
 

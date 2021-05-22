@@ -86,35 +86,12 @@ class TestCompletion(MpfLsBaseTest):
              'insertText': 'ball_starting'},
             completions_inside_state_machine_transitions_events2['items'])
 
-        # position_inside_state_machine_states = {"line": 15, "character": 8}
-        # completions_inside_state_machine_states = self.mpfls.completions(machine_config,
-        #                                                                  position_inside_state_machine_states)
-        #
-        # print(completions_inside_state_machine_states)
+        position_inside_state_machine_states = {"line": 15, "character": 8}
+        completions_inside_state_machine_states = self.mpfls.completions(machine_config,
+                                                                         position_inside_state_machine_states)
 
-        # config = a._load_config(filename)
-        #
-        # print(config)
-        # print(config.lc.data)
-        #
-        # for item in config.values():
-        #
-        #     if hasattr(item, "lc"):
-        #         print(item.lc.data)
-        # print(config.lc.line)
-        #
-        # print(a._get_position_path(config, ))
-
-        #print(a.workspace.get_root_document())
-        #print(a.workspace.get_complete_config())
-
-
-        #print(a._get_position_path(config, position1))
-        #print(a.completions(filename, position1))
-        # print(self.mpfls.definitions(machine_config, position1))
-        # print(self.mpfls.definitions(machine_config, position1))
-
-        # print(a._get_position_path(config, position2))
-        # print(a.completions(filename, position2))
-        # print(a._get_position_path(config, position3))
-        # print(a.completions(filename, position3))
+        print(completions_inside_state_machine_states)
+        self.assertIn(
+            {'label': 'label', 'kind': 5, 'detail': 'Setting label', 'documentation': 'Doc: Setting label',
+             'sortText': 'label', 'insertText': 'label: '},
+            completions_inside_state_machine_states['items'])
