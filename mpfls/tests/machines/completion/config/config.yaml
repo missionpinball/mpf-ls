@@ -1,0 +1,19 @@
+#config_version=5
+state_machines:
+  my_mode:
+    transitions:
+      - events: ball_ended
+        source: start
+        target: state1
+      - events:
+        - event1
+        - event2
+        source: state1
+        target: state2
+    persist_state: true
+    states:
+      state1:
+        label: Test State1
+
+      state2:
+        label: Test State2

@@ -29,6 +29,9 @@ EventInstance = namedtuple("EventInstance", ["event_name", "file_name", "config_
 
 PostedEvent = namedtuple("PostedEvent", ["config_attribute", "event_name", "config_section", "device_name"])
 
+EventHandler = namedtuple("EventHandler", ["event_name", "file_name", "config_section", "class_label",
+                                           "desc", "args", "config_attribute", "device_name"])
+
 LINT_DEBOUNCE_S = 0.5  # 500 ms
 PARENT_PROCESS_WATCH_INTERVAL = 10  # 10 s
 MAX_WORKERS = 64
@@ -279,8 +282,10 @@ class MPFLanguageServer(MethodDispatcher):
 
         if hasattr(config, "lc") and config.lc.data:
             for key, lc in config.lc.data.items():
-                if len(lc) == 4 and ((lc[0] <= line and lc[3] <= character) or (lc[1] < character and lc[2] < line)) or \
-                        (len(lc) == 2 and lc[0] <= line and lc[1] <= character):
+                if len(lc) == 4 and ((lc[0] <= line and lc[3] <= character) or (lc[1] < character and lc[2] < line)):
+                    candidate_key = key
+                    token_range = lc
+                elif len(lc) == 2 and lc[0] <= line and lc[1] + 2 <= character:
                     candidate_key = key
                     token_range = lc
 
@@ -300,14 +305,18 @@ class MPFLanguageServer(MethodDispatcher):
         for key, value in spec.items():
             if key.startswith("__"):
                 continue
-            if not isinstance(value, list) or value[1].startswith("subconfig") or value[0] in ("list", "dict"):
+            if not isinstance(value, list):
+                insert_text = key + ":\n  "
+            elif value[0] == "list" and value[1].startswith("subconfig"):
+                insert_text = key + ":\n  - "
+            elif value[0] == "dict" or value[1].startswith("subconfig"):
                 insert_text = key + ":\n  "
             else:
                 insert_text = key + ": "
 
             suggestions.append({
                     'label': key,
-                    'kind': lsp.CompletionItemKind.Value,
+                    'kind': lsp.CompletionItemKind.Field,
                     'detail': "Setting {}".format(key),
                     'documentation': "Doc: Setting {}".format(key),
                     'sortText': key,
@@ -372,6 +381,15 @@ class MPFLanguageServer(MethodDispatcher):
                 if event.config_section and event.device_name:
                     found.extend(self._get_definitions(event.config_section, event.device_name))
             return found
+        elif settings[1] == "event_posted":
+            # TODO: implement
+            return None
+            # events = self._get_known_event_handlers()
+            # found = []
+            # for event in events:
+            #     if event.config_section and event.device_name:
+            #         found.extend(self._get_definitions(event.config_section, event.device_name))
+            # return found
 
         return None
 
@@ -642,11 +660,20 @@ class MPFLanguageServer(MethodDispatcher):
 
     def _walk_suggestions(self, path):
         device_settings = self._get_spec(path[0])
+        skip_next = False
         for i in range(1, len(path) - 1):
             attribute_settings = device_settings.get(path[i], ["", "", ""])
-            if attribute_settings[1].startswith("subconfig"):
+            if skip_next:
+                skip_next = False
+            elif attribute_settings[1].startswith("subconfig"):
                 settings_name = attribute_settings[1][10:-1]
                 device_settings = self._get_spec(settings_name)
+            elif attribute_settings[0] == "dict" and attribute_settings[1].endswith(":subconfig"):
+                raise AssertionError("aaa")
+                settings_name = attribute_settings[1][attribute_settings[1].index("("):-1]
+                device_settings = self._get_spec(settings_name)
+                log.warning(attribute_settings)
+                skip_next = True
             else:
                 return []
 
@@ -661,7 +688,7 @@ class MPFLanguageServer(MethodDispatcher):
                 'isIncomplete': False,
                 'items': [{
                         'label': "#config_version=5",
-                        'kind': lsp.CompletionItemKind.Text,
+                        'kind': lsp.CompletionItemKind.Keyword,
                         'detail': "",
                         'documentation': "",
                         'sortText': "#config_version=5",
@@ -669,7 +696,7 @@ class MPFLanguageServer(MethodDispatcher):
                     },
                     {
                         'label': "#show_version=5",
-                        'kind': lsp.CompletionItemKind.Text,
+                        'kind': lsp.CompletionItemKind.Keyword,
                         'detail': "",
                         'documentation': "",
                         'sortText': "#show_version=5",
@@ -691,7 +718,7 @@ class MPFLanguageServer(MethodDispatcher):
             suggestions = [
                 {
                     'label': key,
-                    'kind': lsp.CompletionItemKind.Text,
+                    'kind': lsp.CompletionItemKind.Class,
                     'detail': "",
                     'documentation': "",
                     'sortText': key,
@@ -873,7 +900,9 @@ class MPFLanguageServer(MethodDispatcher):
             if isinstance(attribute_settings, List) and attribute_settings[1].startswith("subconfig"):
                 settings_name = attribute_settings[1][10:-1]
                 device_settings = self._get_spec(settings_name)
-
+            elif isinstance(attribute_settings, List) and attribute_settings[0] == "dict" and "subconfig" in attribute_settings[1]:
+                settings_name = attribute_settings[1][attribute_settings[1].index("("):-1]
+                device_settings = self._get_spec(settings_name)
             else:
                 return {'contents': ""}
 
