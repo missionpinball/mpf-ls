@@ -442,19 +442,19 @@ class MPFLanguageServer(MethodDispatcher):
                 }
             }
 
-    def _event_replace_placeholders(self, placeholders, event_name, event, device_name, device_config):
+    def _event_replace_placeholders(self, placeholders, event_name, event, device_name, device_config, config_section):
         event_instances = []
         for placeholder in placeholders:
             if placeholder == "name":
                 event_name = event_name.replace("({})".format(placeholder), device_name)
             else:
-                if placeholder not in self.config_spec[event.config_section]:
+                if placeholder not in self.config_spec[config_section]:
                     log.warning("Broken placeholder %s in event %s", placeholder, event)
                 elif placeholder in device_config:
                     event_name = event_name.replace("({})".format(placeholder), device_config[placeholder])
-                elif self.config_spec[event.config_section][placeholder][2]:
+                elif self.config_spec[config_section][placeholder][2]:
                     event_name = event_name.replace("({})".format(placeholder),
-                                                    self.config_spec[event.config_section][placeholder][2])
+                                                    self.config_spec[config_section][placeholder][2])
 
         event_instances.append(EventInstance(event_name=event_name,
                                              file_name=event.file_name,
@@ -474,22 +474,29 @@ class MPFLanguageServer(MethodDispatcher):
         device_events = self.workspace.get_device_events()
         config = self.workspace.get_complete_config()
         for event in device_events:
-            if event.config_section and event.config_section in config:
+            if event.config_section:
                 placeholders = re.findall(r'\(([^)]+)\)', event.event_name)
-                for device_name, device_config in config[event.config_section].items():
-                    if event.config_attribute and event.config_attribute in device_config:
-                        # ignore this as it is picked up later by parsing those events
-                        pass
-                    elif "tag" in placeholders:
-                        placeholders_without_tag = list(placeholders)
-                        placeholders_without_tag.remove("tag")
-                        for tag in Util.string_to_list(device_config.get("tags", "")):
-                            known_events.extend(self._event_replace_placeholders(placeholders_without_tag,
-                                                                                 event.event_name.replace("(tag)", tag),
-                                                                                 event, device_name, device_config))
-                    else:
-                        known_events.extend(self._event_replace_placeholders(placeholders, event.event_name,
-                                                                             event, device_name, device_config))
+                config_sections = event.config_section if isinstance(event.config_section, list) else \
+                    [event.config_section]
+                for config_section in config_sections:
+                    if config_section not in config:
+                        continue
+                    for device_name, device_config in config[config_section].items():
+                        if event.config_attribute and event.config_attribute in device_config:
+                            # ignore this as it is picked up later by parsing those events
+                            pass
+                        elif "tag" in placeholders:
+                            placeholders_without_tag = list(placeholders)
+                            placeholders_without_tag.remove("tag")
+                            for tag in Util.string_to_list(device_config.get("tags", "")):
+                                known_events.extend(self._event_replace_placeholders(
+                                    placeholders_without_tag,
+                                    event.event_name.replace("(tag)", tag),
+                                    event, device_name, device_config, config_section))
+                        else:
+                            known_events.extend(self._event_replace_placeholders(placeholders, event.event_name,
+                                                                                 event, device_name, device_config,
+                                                                                 config_section))
             elif not event.config_section:
                 known_events.append(EventInstance(event_name=event.event_name,
                                                   file_name=event.file_name,
@@ -712,7 +719,6 @@ class MPFLanguageServer(MethodDispatcher):
         document = self.workspace.get_document(doc_uri)
         token_start = self._get_start_of_token_at_position(document.lines, position)
         path, current_range = self._get_position_path(document.config_roundtrip, token_start)
-        print("PATH", path, current_range)
 
         root_spec = self._get_spec(path[0]) if path else {}
 

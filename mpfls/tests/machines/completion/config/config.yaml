@@ -17,3 +17,11 @@ state_machines:
 
       state2:
         label: Test State2
+
+counters:
+  test_counter:
+    count_events: test_event3
+    count_complete_value: 3
+    start_enabled: false
+    restart_events: start_left_ramp_counter
+    disable_on_complete: true

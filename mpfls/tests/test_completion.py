@@ -85,6 +85,12 @@ class TestCompletion(MpfLsBaseTest):
              'documentation': ANY, 'sortText': 'ball_starting',
              'insertText': 'ball_starting'},
             completions_inside_state_machine_transitions_events2['items'])
+        self.assertIn(
+            {'label': 'logicblock_test_counter_complete', 'kind': 12,
+             'detail': "Event: logicblock_(name)_complete from ['counters', 'accruals', 'sequences']",
+             'documentation': ANY, 'sortText': 'logicblock_test_counter_complete',
+             'insertText': 'logicblock_test_counter_complete'},
+            completions_inside_state_machine_transitions_events2['items'])
 
         position_inside_state_machine_states = {"line": 15, "character": 8}
         completions_inside_state_machine_states = self.mpfls.completions(machine_config,
