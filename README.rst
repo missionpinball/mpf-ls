@@ -13,6 +13,9 @@ Installation (from pypi)
 Usage in IDE
 ------------
 
+Any IDE supported by language service will work. Here are a few examples:
+
+
 IntelliJ Based IDE
 ~~~~~~~~~~~~~~~~~~
 
