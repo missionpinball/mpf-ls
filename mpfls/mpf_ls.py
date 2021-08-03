@@ -993,6 +993,9 @@ class MPFLanguageServer(MethodDispatcher):
                         'severity': lsp.DiagnosticSeverity.Error,
                     }
                 )
+        if document.config_type == TYPE_SHOW:
+            # TODO: add show diagnostics
+            return diagnostics
 
         if hasattr(config, "lc"):
             for key, lc in config.lc.data.items():
@@ -1121,7 +1124,11 @@ class MPFLanguageServer(MethodDispatcher):
         return diagnostics
 
     def _get_spec(self, spec_name_str):
-        spec_names = spec_name_str.split(",")
+        try:
+            spec_names = spec_name_str.split(",")
+        except Exception as e:
+            raise AssertionError("Failed to split {}".format(spec_name_str)) from e
+
         spec = deepcopy(self.config_spec.get(spec_names[0], {}))
         for spec_name in spec_names[1:]:
             spec.update(self.config_spec.get(spec_name, {}))
