@@ -993,8 +993,28 @@ class MPFLanguageServer(MethodDispatcher):
                         'severity': lsp.DiagnosticSeverity.Error,
                     }
                 )
-        if document.config_type == TYPE_SHOW:
-            # TODO: add show diagnostics
+            if hasattr(config, "lc"):
+                for key, lc in config.lc.data.items():
+                    if not isinstance(config[key], (list, dict)):
+                        diagnostics.append(
+                            {
+                                'source': 'mpf-ls',
+                                'code': "15",
+                                'range': self._range_from_lc(document, lc),
+                                'message': "Shows need to be lists.",
+                                'severity': lsp.DiagnosticSeverity.Warning,
+                            })
+                    # TODO: this is not correct. or is it?
+                    if "duration" not in config[key] and "time" not in config[key]:
+                        diagnostics.append(
+                            {
+                                'source': 'mpf-ls',
+                                'code': "16",
+                                'range': self._range_from_lc(document, lc),
+                                'message': "Show step needs duration or time.",
+                                'severity': lsp.DiagnosticSeverity.Warning,
+                            })
+
             return diagnostics
 
         if hasattr(config, "lc"):
