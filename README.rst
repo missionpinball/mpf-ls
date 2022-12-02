@@ -24,6 +24,10 @@ install a LSP (Language Server Protocol) plugin.
 Then add ``mpfls`` as ``Raw command`` for ``yaml`` files in
 "Settings -> Languages & Frameworks -> Language Server Protocol -> Server Definitions".
 
+I you run mpf in Python Virtual Environment (venv) then mpfls also has to be run in that venv.
+For example create a script that activate venv and run mpfls and add that script as ``Executable`` for ``yaml`` in
+"Settings -> Languages & Frameworks -> Language Server Protocol -> Server Definitions".
+
 VSCode
 ~~~~~~
 
