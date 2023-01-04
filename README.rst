@@ -6,9 +6,13 @@ Language server for MPF config.
 Installation (from pypi)
 ------------------------
 
-.. code-block:: bash
+To use the MPF language server, you will have needed to install mpf and mpf-mc using the pipx commands from the install guide.
 
-    pip3 install mpf-language-server
+The command below will inject the mpf-language-server into your mpf virtualenv and make the mpfls command available.
+
+.. code-block:: bash
+  
+    pipx inject mpf mpf-language-server --pip-args="--pre" --verbose --include-deps --include-apps
 
 Usage in IDE
 ------------
@@ -31,7 +35,7 @@ For example create a script that activate venv and run mpfls and add that script
 VSCode
 ~~~~~~
 
-For vsCode install the extension in `vscode-client <vscode-client>`_.
+For vsCode install the extension found here: `vscode-client <vscode-client>`_.  You will be installing the latest .vsix file from that location.
 
 Emacs
 ~~~~~
