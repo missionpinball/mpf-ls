@@ -62,9 +62,6 @@
         "@vscode/test-electron": "^2.2.0"
     },
     "dependencies": {
-        "@types/vscode": "^1.74.0",
-        "package": "^1.0.1",
-        "vsce": "^2.15.0",
         "vscode-languageclient": "^8.0.2"
     }
 }
