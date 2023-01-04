@@ -8,7 +8,7 @@ Installation (from pypi)
 
 .. code-block:: bash
 
-    pip3 install mpf-language-server
+    pipx inject mpf mpf-language-server --pip-args="--pre" --verbose --include-deps --include-apps
 
 Usage in IDE
 ------------
