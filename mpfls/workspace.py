@@ -158,10 +158,10 @@ class Workspace(object):
             self.show_message("{} is not in workspace {}. MPF Language Server will not work.".format(path,
                                                                                                      self.root_path))
 
-        if path.startswith(self.mode_path + os.sep):
-            config_type = TYPE_MODE
-        elif path.startswith(self.show_path + os.sep):
+        if path.find(os.sep + 'shows' + os.sep) != -1:
             config_type = TYPE_SHOW
+        elif path.startswith(self.mode_path + os.sep):
+            config_type = TYPE_MODE
         else:
             config_type = TYPE_MACHINE
 
