@@ -12,10 +12,10 @@ class TestCompletion(MpfLsBaseTest):
         position_start = {"line": 0, "character": 0}
         self.assertEqual(
             {'isIncomplete': False, 'items': [
-                {'label': '#config_version=5', 'kind': 14, 'detail': '', 'documentation': '',
-                 'sortText': '#config_version=5', 'insertText': '#config_version=5\n'},
-                {'label': '#show_version=5', 'kind': 14, 'detail': '', 'documentation': '',
-                 'sortText': '#show_version=5', 'insertText': '#show_version=5\n'}
+                {'label': '#config_version=6', 'kind': 14, 'detail': '', 'documentation': '',
+                 'sortText': '#config_version=6', 'insertText': '#config_version=6\n'},
+                {'label': '#show_version=6', 'kind': 14, 'detail': '', 'documentation': '',
+                 'sortText': '#show_version=6', 'insertText': '#show_version=6\n'}
             ]},
             self.mpfls.completions(machine_config, position_start))
 

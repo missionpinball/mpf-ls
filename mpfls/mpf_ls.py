@@ -327,7 +327,7 @@ class MPFLanguageServer(MethodDispatcher):
 
     def _find_device_in_config(self, document, device_type, device_name):
         found = []
-        config = document.config_roundtrip
+        config = document.config_simple
         device_config = config.get(device_type, {})
         if device_config:
             if device_name in device_config:
@@ -698,27 +698,27 @@ class MPFLanguageServer(MethodDispatcher):
             return {
                 'isIncomplete': False,
                 'items': [{
-                        'label': "#config_version=5",
+                        'label': "#config_version=6",
                         'kind': lsp.CompletionItemKind.Keyword,
                         'detail': "",
                         'documentation': "",
-                        'sortText': "#config_version=5",
-                        'insertText': "#config_version=5\n"
+                        'sortText': "#config_version=6",
+                        'insertText': "#config_version=6\n"
                     },
                     {
-                        'label': "#show_version=5",
+                        'label': "#show_version=6",
                         'kind': lsp.CompletionItemKind.Keyword,
                         'detail': "",
                         'documentation': "",
-                        'sortText': "#show_version=5",
-                        'insertText': "#show_version=5\n"
+                        'sortText': "#show_version=6",
+                        'insertText': "#show_version=6\n"
                     }
                 ]
             }
 
         document = self.workspace.get_document(doc_uri)
         token_start = self._get_start_of_token_at_position(document.lines, position)
-        path, current_range = self._get_position_path(document.config_roundtrip, token_start)
+        path, current_range = self._get_position_path(document.config_simple, token_start)
 
         root_spec = self._get_spec(path[0]) if path else {}
 
@@ -784,7 +784,7 @@ class MPFLanguageServer(MethodDispatcher):
         document = self.workspace.get_document(doc_uri)
         token_start = self._get_start_of_token_at_position(document.lines, position)
         token, token_range = self._get_current_token(document.lines, token_start)
-        path, current_range = self._get_position_path(document.config_roundtrip, token_start)
+        path, current_range = self._get_position_path(document.config_simple, token_start)
         root_spec = self._get_spec(path[0]) if path else {}
 
         log.warning("Definitions %s %s %s", token, token_start, token_range)
@@ -827,7 +827,7 @@ class MPFLanguageServer(MethodDispatcher):
         return []
 
         document = self.workspace.get_document(doc_uri)
-        symbols = self._walk_devices(document.config_roundtrip)
+        symbols = self._walk_devices(document.config_simple)
 
         return symbols
 
@@ -851,7 +851,7 @@ class MPFLanguageServer(MethodDispatcher):
         document = self.workspace.get_document(doc_uri)
         token_start = self._get_start_of_token_at_position(document.lines, position)
         # TODO: get current element instead of the one left of the element
-        path, current_range = self._get_position_path(document.config_roundtrip, token_start)
+        path, current_range = self._get_position_path(document.config_simple, token_start)
 
         if current_range:
             return [
@@ -933,7 +933,7 @@ class MPFLanguageServer(MethodDispatcher):
         document = self.workspace.get_document(doc_uri)
         token_start = self._get_start_of_token_at_position(document.lines, position)
         token, token_range = self._get_current_token(document.lines, token_start)
-        path, current_range = self._get_position_path(document.config_roundtrip, token_start)
+        path, current_range = self._get_position_path(document.config_simple, token_start)
 
         root_spec = self._get_spec(path[0]) if path else {}
 
@@ -954,7 +954,7 @@ class MPFLanguageServer(MethodDispatcher):
         diagnostics = []
         lines = document.lines
         if document.config_type in (TYPE_MACHINE, TYPE_MODE):
-            if not document.source.startswith("#config_version=5") and len(lines) > 1:
+            if not document.source.startswith("#config_version=6") and len(lines) > 1:
                 diagnostics.append(
                     {
                         'source': 'mpf-ls',
@@ -969,12 +969,12 @@ class MPFLanguageServer(MethodDispatcher):
                                 'character': len(lines[0])
                             }
                         },
-                        'message': "Config version is missing/wrong. Put #config_version=5 into the first line.",
+                        'message': "Config version is missing/wrong. Put #config_version=6 into the first line.",
                         'severity': lsp.DiagnosticSeverity.Error,
                     }
                 )
         elif document.config_type == TYPE_SHOW:
-            if not document.source.startswith("#show_version=5") and len(lines) > 1:
+            if not document.source.startswith("#show_version=6") and len(lines) > 1:
                 diagnostics.append(
                     {
                         'source': 'mpf-ls',
@@ -989,7 +989,7 @@ class MPFLanguageServer(MethodDispatcher):
                                 'character': len(lines[0])
                             }
                         },
-                        'message': "Config version is missing/wrong. Put #show_version=5 into the first line.",
+                        'message': "Config version is missing/wrong. Put #show_version=6 into the first line.",
                         'severity': lsp.DiagnosticSeverity.Error,
                     }
                 )
@@ -1352,7 +1352,7 @@ class MPFLanguageServer(MethodDispatcher):
         if doc_uri in workspace.documents:
             document = workspace.get_document(doc_uri)
             try:
-                diagnostics = self._walk_diagnostics_root(document, document.config_roundtrip)
+                diagnostics = self._walk_diagnostics_root(document, document.config_simple)
             except Exception as e:
                 tb = traceback.format_exc()
                 diagnostics = [

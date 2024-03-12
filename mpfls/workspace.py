@@ -11,7 +11,7 @@ import re
 
 from mpf.core.utility_functions import Util
 from mpf.file_interfaces.yaml_interface import YamlInterface
-from mpf.file_interfaces.yaml_roundtrip import YamlRoundtrip
+# from mpf.file_interfaces.yaml_roundtrip import YamlRoundtrip
 from mpf.parsers.event_reference_parser import EventReferenceParser, EventReference
 from typing import List
 
@@ -182,41 +182,41 @@ class Document(object):
         self._source = source
         self._extra_sys_path = extra_sys_path or []
         self._config_simple = {}
-        self._config_roundtrip = {}
+        # self._config_roundtrip = {}
         self._last_config_simple = {}
-        self._last_config_roundtrip = {}
-        self._loader_roundtrip = YamlRoundtrip()
+        # self._last_config_roundtrip = {}
+        # self._loader_roundtrip = YamlRoundtrip()
         self._loader_simple = YamlInterface()
         self.config_type = config_type
 
     def invalidate_config(self):
         self._last_config_simple = {}
-        self._config_roundtrip = {}
+        # self._config_roundtrip = {}
 
     @property
     def parsing_failed(self):
         return self._parsing_failed
 
-    @property
-    def config_roundtrip(self):
-        if not self._config_roundtrip:
-            self._load_config_roundtrip()
+    # @property
+    # def config_roundtrip(self):
+    #     if not self._config_roundtrip:
+    #         self._load_config_roundtrip()
 
-        if not self._config_roundtrip:
-            if not self._last_config_roundtrip:
-                return {}
-            return self._last_config_roundtrip
-        else:
-            return self._config_roundtrip
+    #     if not self._config_roundtrip:
+    #         if not self._last_config_roundtrip:
+    #             return {}
+    #         return self._last_config_roundtrip
+    #     else:
+    #         return self._config_roundtrip
 
-    def _load_config_roundtrip(self):
-        try:
-            self._config_roundtrip = self._loader_roundtrip.process(self.source)
-        except:
-            self._parsing_failed = True
-        else:
-            self._parsing_failed = False
-            self._last_config_roundtrip = self._config_roundtrip
+    # def _load_config_roundtrip(self):
+    #     try:
+    #         self._config_roundtrip = self._loader_roundtrip.process(self.source)
+    #     except:
+    #         self._parsing_failed = True
+    #     else:
+    #         self._parsing_failed = False
+    #         self._last_config_roundtrip = self._config_roundtrip
 
     @property
     def config_simple(self):
