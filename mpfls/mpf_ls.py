@@ -353,7 +353,6 @@ class MPFLanguageServer(MethodDispatcher):
         root_document = self.workspace.get_root_document()
         found = self._find_device_in_config(root_document, device_type, device_name)
         found.extend(self._find_device_in_config(self.workspace.get_mpf_config(), device_type, device_name))
-        found.extend(self._find_device_in_config(self.workspace.get_mc_config(), device_type, device_name))
 
         config = self.workspace.get_complete_config()
         if "modes" in config:

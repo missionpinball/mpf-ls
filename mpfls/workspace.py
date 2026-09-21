@@ -3,7 +3,6 @@ import io
 import logging
 import pathlib
 
-import mpfmc
 
 import mpf
 import os
@@ -42,7 +41,6 @@ class Workspace(object):
         self._docs = {}
         self._cached_config = {}
         self.mpf_path = str(pathlib.Path(mpf.__file__).parent.absolute())
-        self.mc_path = str(pathlib.Path(mpfmc.__file__).parent.absolute())
         self.config_path = os.path.join(self._root_path, "config")
         self.mode_path = os.path.join(self._root_path, "modes")
         self.show_path = os.path.join(self._root_path, "shows")
@@ -54,15 +52,12 @@ class Workspace(object):
     def get_mpf_config(self):
         return self.get_document(uris.from_fs_path(os.path.join(self.mpf_path, "mpfconfig.yaml")))
 
-    def get_mc_config(self):
-        return self.get_document(uris.from_fs_path(os.path.join(self.mc_path, "mcconfig.yaml")))
-
     def get_device_events(self) -> List[EventReference]:
         if self._device_events is not None:
            return self._device_events
 
         event_parser = EventReferenceParser()
-        self._device_events = event_parser.get_events_from_path([self.mpf_path, self.mc_path, self._root_path])
+        self._device_events = event_parser.get_events_from_path([self.mpf_path, self._root_path])
         return self._device_events
 
     def get_complete_config(self):
@@ -153,8 +148,7 @@ class Workspace(object):
         path = uris.to_fs_path(doc_uri)
 
         if not path.startswith(os.path.abspath(self.root_path) + os.sep) and \
-                not path.startswith(self.mpf_path + os.sep) and \
-                not path.startswith(self.mc_path + os.sep):
+                not path.startswith(self.mpf_path + os.sep):
             self.show_message("{} is not in workspace {}. MPF Language Server will not work.".format(path,
                                                                                                      self.root_path))
 
