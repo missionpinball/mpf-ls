@@ -10,7 +10,6 @@ import re
 
 from mpf.core.utility_functions import Util
 from mpf.file_interfaces.yaml_interface import YamlInterface
-from mpf.file_interfaces.yaml_roundtrip import YamlRoundtrip
 from mpf.parsers.event_reference_parser import EventReferenceParser, EventReference
 from typing import List
 
@@ -179,7 +178,6 @@ class Document(object):
         self._config_roundtrip = {}
         self._last_config_simple = {}
         self._last_config_roundtrip = {}
-        self._loader_roundtrip = YamlRoundtrip()
         self._loader_simple = YamlInterface()
         self.config_type = config_type
 
