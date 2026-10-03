@@ -697,20 +697,20 @@ class MPFLanguageServer(MethodDispatcher):
             return {
                 'isIncomplete': False,
                 'items': [{
-                        'label': "#config_version=5",
+                        'label': "#config_version=6",
                         'kind': lsp.CompletionItemKind.Keyword,
                         'detail': "",
                         'documentation': "",
-                        'sortText': "#config_version=5",
-                        'insertText': "#config_version=5\n"
+                        'sortText': "#config_version=6",
+                        'insertText': "#config_version=6\n"
                     },
                     {
-                        'label': "#show_version=5",
+                        'label': "#show_version=6",
                         'kind': lsp.CompletionItemKind.Keyword,
                         'detail': "",
                         'documentation': "",
-                        'sortText': "#show_version=5",
-                        'insertText': "#show_version=5\n"
+                        'sortText': "#show_version=6",
+                        'insertText': "#show_version=6\n"
                     }
                 ]
             }
