@@ -953,7 +953,7 @@ class MPFLanguageServer(MethodDispatcher):
         diagnostics = []
         lines = document.lines
         if document.config_type in (TYPE_MACHINE, TYPE_MODE):
-            if not document.source.startswith("#config_version=5") and len(lines) > 1:
+            if not document.source.startswith("#config_version=6") and len(lines) > 1:
                 diagnostics.append(
                     {
                         'source': 'mpf-ls',
@@ -968,12 +968,12 @@ class MPFLanguageServer(MethodDispatcher):
                                 'character': len(lines[0])
                             }
                         },
-                        'message': "Config version is missing/wrong. Put #config_version=5 into the first line.",
+                        'message': "Config version is missing/wrong. Put #config_version=6 into the first line.",
                         'severity': lsp.DiagnosticSeverity.Error,
                     }
                 )
         elif document.config_type == TYPE_SHOW:
-            if not document.source.startswith("#show_version=5") and len(lines) > 1:
+            if not document.source.startswith("#show_version=6") and len(lines) > 1:
                 diagnostics.append(
                     {
                         'source': 'mpf-ls',
@@ -988,7 +988,7 @@ class MPFLanguageServer(MethodDispatcher):
                                 'character': len(lines[0])
                             }
                         },
-                        'message': "Config version is missing/wrong. Put #show_version=5 into the first line.",
+                        'message': "Config version is missing/wrong. Put #show_version=6 into the first line.",
                         'severity': lsp.DiagnosticSeverity.Error,
                     }
                 )
