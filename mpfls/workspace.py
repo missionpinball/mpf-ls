@@ -3,6 +3,7 @@ import io
 import logging
 import pathlib
 
+log = logging.getLogger(__name__)
 
 import mpf
 import os
@@ -10,13 +11,16 @@ import re
 
 from mpf.core.utility_functions import Util
 from mpf.file_interfaces.yaml_interface import YamlInterface
-from mpf.file_interfaces.yaml_roundtrip import YamlRoundtrip
+try:
+    from mpf.file_interfaces.yaml_roundtrip import YamlRoundtrip
+except ModuleNotFoundError:
+    log.warning("Could not import YamlRoundtrip. This is expected if you are using MPF <0.81.dev6 or >0.57.0", ImportWarning)
 from mpf.parsers.event_reference_parser import EventReferenceParser, EventReference
 from typing import List
 
 from . import lsp, uris, _utils
 
-log = logging.getLogger(__name__)
+
 
 # TODO: this is not the best e.g. we capture numbers
 RE_START_WORD = re.compile('[A-Za-z_0-9]*$')
@@ -179,7 +183,13 @@ class Document(object):
         self._config_roundtrip = {}
         self._last_config_simple = {}
         self._last_config_roundtrip = {}
-        self._loader_roundtrip = YamlRoundtrip()
+        try:
+            self._loader_roundtrip = YamlRoundtrip()
+        except:
+            self._loader_roundtrip = YamlInterface()
+            self._parsing_failed = True
+        else:
+            self._parsing_failed = False
         self._loader_simple = YamlInterface()
         self.config_type = config_type
 
