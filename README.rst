@@ -24,13 +24,14 @@ IntelliJ Based IDE
 ~~~~~~~~~~~~~~~~~~
 
 For any IntelliJ based IDE (such as PyCharm, WebStorm or PhpStorm) you need to
-install a LSP (Language Server Protocol) plugin.
-Then add ``mpfls`` as ``Raw command`` for ``yaml`` files in
-"Settings -> Languages & Frameworks -> Language Server Protocol -> Server Definitions".
+install a LSP (Language Server Protocol) plugin, such as `LSP4IJ <https://plugins.jetbrains.com/plugin/23257-lsp4ij>`_.
 
-If you run mpf in Python Virtual Environment (venv) then mpfls also has to be run in that venv.
-For example create a script that activate venv and run mpfls and add that script as ``Executable`` for ``yaml`` in
-"Settings -> Languages & Frameworks -> Language Server Protocol -> Server Definitions".
+Add a new Language Server named "MPF Language Server" from the "Settings -> Languages & Frameworks -> Language Servers" menu.
+
+From the `Server` tab, enter the command: :code:`$PROJECT_DIR$/.venv/Scripts/mpfls`. Environment Variables and Working Directory can remain blank.
+
+From the `Mappings` tab, select the `File type` subtab, and add a new File type. Select :code:`YAML` from the dropdown, and set the Language Id to :code:`mpfls`. Next select the `File name patterns` subtab, and add :code:`.yaml` and :code:`.yml` patterns, both with Language Id :code:`mpfls`.
+
 
 VSCode
 ~~~~~~
@@ -42,7 +43,7 @@ Emacs
 
 Integration with Emacs is accomplished using `lsp-mode <https://github.com/emacs-lsp/lsp-mode>`_.
 
-A minimal completion setup can be achieved with the :code:`lsp-mode`, :code:`yaml-mode`, :code:`company`, and :code:`lsp-company` packages.  Company is a general purpose completion package for Emacs.  :code:`lsp-company` is a helper package for using Company with :code`lsp-mode`.
+A minimal completion setup can be achieved with the :code:`lsp-mode`, :code:`yaml-mode`, :code:`company`, and :code:`lsp-company` packages.  Company is a general purpose completion package for Emacs.  :code:`lsp-company` is a helper package for using Company with :code:`lsp-mode`.
 
 1. Install :code:`lsp-mode`, :code:`company`, :code:`yaml-mode`, and :code:`lsp-company` by running :code:`M-x package-install` and following the instructions.
 2. Add the following to your Emacs init file: ::
