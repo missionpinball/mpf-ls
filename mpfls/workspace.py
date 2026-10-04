@@ -14,7 +14,9 @@ from mpf.file_interfaces.yaml_interface import YamlInterface
 try:
     from mpf.file_interfaces.yaml_roundtrip import YamlRoundtrip
 except ImportError:
-    log.warning("Could not import YamlRoundtrip. This is expected if you are using 0.57.0< MPF <0.81.dev6")
+    log.warning("Could not import YamlRoundtrip. This is expected if you are using 0.57.0< MPF <0.81.dev6\n"
+                "MPF-LS will not work properly without this. Please upgrade to 0.81.dev6 or later for full funtionality.\n"
+                "Some features such as completions may still work")
 from mpf.parsers.event_reference_parser import EventReferenceParser, EventReference
 from typing import List
 
