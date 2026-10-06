@@ -3,6 +3,8 @@ import io
 import logging
 import pathlib
 
+from ruamel.yaml import YAML
+
 log = logging.getLogger(__name__)
 
 import mpf
@@ -11,12 +13,6 @@ import re
 
 from mpf.core.utility_functions import Util
 from mpf.file_interfaces.yaml_interface import YamlInterface
-try:
-    from mpf.file_interfaces.yaml_roundtrip import YamlRoundtrip
-except ImportError:
-    log.warning("Could not import YamlRoundtrip. This is expected if you are using 0.57.0< MPF <0.81.dev6\n"
-                "MPF-LS will not work properly without this. Please upgrade to 0.81.dev6 or later for full funtionality.\n"
-                "Some features such as completions may still work")
 from mpf.parsers.event_reference_parser import EventReferenceParser, EventReference
 from typing import List
 
@@ -32,6 +28,18 @@ TYPE_MACHINE = "machine"
 TYPE_MODE = "mode"
 TYPE_SHOW = "show"
 
+
+
+class YamlRoundtrip(object):
+    """A YAML parser that loads and dumps YAML using ruamel.yaml."""
+    def __init__(self):
+        self.yaml = YAML(typ="rt")
+        self.yaml.default_flow_style = False
+        self.yaml.preserve_quotes = True
+        self.yaml.width = 10000
+
+    def process(self, source):
+        return self.yaml.load(source)
 
 class Workspace(object):
 
@@ -185,13 +193,7 @@ class Document(object):
         self._config_roundtrip = {}
         self._last_config_simple = {}
         self._last_config_roundtrip = {}
-        try:
-            self._loader_roundtrip = YamlRoundtrip()
-        except NameError:
-            self._loader_roundtrip = YamlInterface()
-            self._parsing_failed = True
-        else:
-            self._parsing_failed = False
+        self._loader_roundtrip = YamlRoundtrip()
         self._loader_simple = YamlInterface()
         self.config_type = config_type
 
@@ -218,7 +220,7 @@ class Document(object):
     def _load_config_roundtrip(self):
         try:
             self._config_roundtrip = self._loader_roundtrip.process(self.source)
-        except:
+        except Exception:
             self._parsing_failed = True
         else:
             self._parsing_failed = False
