@@ -4,6 +4,7 @@ import logging
 import pathlib
 
 from ruamel.yaml import YAML
+from ruamel.yaml.error import MarkedYAMLError
 
 log = logging.getLogger(__name__)
 
@@ -220,6 +221,12 @@ class Document(object):
     def _load_config_roundtrip(self):
         try:
             self._config_roundtrip = self._loader_roundtrip.process(self.source)
+        except MarkedYAMLError as e:
+            self._parsing_failed = True
+            mark = e.problem_mark
+            msg = "YAML error found in file {}. Line {}, " \
+                  "Position {}: {}".format(self.filename, mark.line + 1 if mark else None,
+                                           mark.column + 1 if mark else None, e)
         except Exception:
             self._parsing_failed = True
         else:
