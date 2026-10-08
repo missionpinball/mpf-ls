@@ -3,7 +3,10 @@ import io
 import logging
 import pathlib
 
-import mpfmc
+from ruamel.yaml import YAML
+from ruamel.yaml.error import MarkedYAMLError
+
+log = logging.getLogger(__name__)
 
 import mpf
 import os
@@ -11,13 +14,12 @@ import re
 
 from mpf.core.utility_functions import Util
 from mpf.file_interfaces.yaml_interface import YamlInterface
-from mpf.file_interfaces.yaml_roundtrip import YamlRoundtrip
 from mpf.parsers.event_reference_parser import EventReferenceParser, EventReference
 from typing import List
 
 from . import lsp, uris, _utils
 
-log = logging.getLogger(__name__)
+
 
 # TODO: this is not the best e.g. we capture numbers
 RE_START_WORD = re.compile('[A-Za-z_0-9]*$')
@@ -27,6 +29,18 @@ TYPE_MACHINE = "machine"
 TYPE_MODE = "mode"
 TYPE_SHOW = "show"
 
+
+
+class YamlRoundtrip(object):
+    """A YAML parser that loads and dumps YAML using ruamel.yaml."""
+    def __init__(self):
+        self.yaml = YAML(typ="rt")
+        self.yaml.default_flow_style = False
+        self.yaml.preserve_quotes = True
+        self.yaml.width = 10000
+
+    def process(self, source):
+        return self.yaml.load(source)
 
 class Workspace(object):
 
@@ -42,7 +56,6 @@ class Workspace(object):
         self._docs = {}
         self._cached_config = {}
         self.mpf_path = str(pathlib.Path(mpf.__file__).parent.absolute())
-        self.mc_path = str(pathlib.Path(mpfmc.__file__).parent.absolute())
         self.config_path = os.path.join(self._root_path, "config")
         self.mode_path = os.path.join(self._root_path, "modes")
         self.show_path = os.path.join(self._root_path, "shows")
@@ -54,15 +67,12 @@ class Workspace(object):
     def get_mpf_config(self):
         return self.get_document(uris.from_fs_path(os.path.join(self.mpf_path, "mpfconfig.yaml")))
 
-    def get_mc_config(self):
-        return self.get_document(uris.from_fs_path(os.path.join(self.mc_path, "mcconfig.yaml")))
-
     def get_device_events(self) -> List[EventReference]:
         if self._device_events is not None:
            return self._device_events
 
         event_parser = EventReferenceParser()
-        self._device_events = event_parser.get_events_from_path([self.mpf_path, self.mc_path, self._root_path])
+        self._device_events = event_parser.get_events_from_path([self.mpf_path, self._root_path])
         return self._device_events
 
     def get_complete_config(self):
@@ -153,8 +163,7 @@ class Workspace(object):
         path = uris.to_fs_path(doc_uri)
 
         if not path.startswith(os.path.abspath(self.root_path) + os.sep) and \
-                not path.startswith(self.mpf_path + os.sep) and \
-                not path.startswith(self.mc_path + os.sep):
+                not path.startswith(self.mpf_path + os.sep):
             self.show_message("{} is not in workspace {}. MPF Language Server will not work.".format(path,
                                                                                                      self.root_path))
 
@@ -212,7 +221,13 @@ class Document(object):
     def _load_config_roundtrip(self):
         try:
             self._config_roundtrip = self._loader_roundtrip.process(self.source)
-        except:
+        except MarkedYAMLError as e:
+            self._parsing_failed = True
+            mark = e.problem_mark
+            msg = "YAML error found in file {}. Line {}, " \
+                  "Position {}: {}".format(self.filename, mark.line + 1 if mark else None,
+                                           mark.column + 1 if mark else None, e)
+        except Exception:
             self._parsing_failed = True
         else:
             self._parsing_failed = False

@@ -353,7 +353,6 @@ class MPFLanguageServer(MethodDispatcher):
         root_document = self.workspace.get_root_document()
         found = self._find_device_in_config(root_document, device_type, device_name)
         found.extend(self._find_device_in_config(self.workspace.get_mpf_config(), device_type, device_name))
-        found.extend(self._find_device_in_config(self.workspace.get_mc_config(), device_type, device_name))
 
         config = self.workspace.get_complete_config()
         if "modes" in config:
@@ -698,20 +697,20 @@ class MPFLanguageServer(MethodDispatcher):
             return {
                 'isIncomplete': False,
                 'items': [{
-                        'label': "#config_version=5",
+                        'label': "#config_version=6",
                         'kind': lsp.CompletionItemKind.Keyword,
                         'detail': "",
                         'documentation': "",
-                        'sortText': "#config_version=5",
-                        'insertText': "#config_version=5\n"
+                        'sortText': "#config_version=6",
+                        'insertText': "#config_version=6\n"
                     },
                     {
-                        'label': "#show_version=5",
+                        'label': "#show_version=6",
                         'kind': lsp.CompletionItemKind.Keyword,
                         'detail': "",
                         'documentation': "",
-                        'sortText': "#show_version=5",
-                        'insertText': "#show_version=5\n"
+                        'sortText': "#show_version=6",
+                        'insertText': "#show_version=6\n"
                     }
                 ]
             }
@@ -954,7 +953,7 @@ class MPFLanguageServer(MethodDispatcher):
         diagnostics = []
         lines = document.lines
         if document.config_type in (TYPE_MACHINE, TYPE_MODE):
-            if not document.source.startswith("#config_version=5") and len(lines) > 1:
+            if not document.source.startswith("#config_version=6") and len(lines) > 1:
                 diagnostics.append(
                     {
                         'source': 'mpf-ls',
@@ -969,12 +968,12 @@ class MPFLanguageServer(MethodDispatcher):
                                 'character': len(lines[0])
                             }
                         },
-                        'message': "Config version is missing/wrong. Put #config_version=5 into the first line.",
+                        'message': "Config version is missing/wrong. Put #config_version=6 into the first line.",
                         'severity': lsp.DiagnosticSeverity.Error,
                     }
                 )
         elif document.config_type == TYPE_SHOW:
-            if not document.source.startswith("#show_version=5") and len(lines) > 1:
+            if not document.source.startswith("#show_version=6") and len(lines) > 1:
                 diagnostics.append(
                     {
                         'source': 'mpf-ls',
@@ -989,7 +988,7 @@ class MPFLanguageServer(MethodDispatcher):
                                 'character': len(lines[0])
                             }
                         },
-                        'message': "Config version is missing/wrong. Put #show_version=5 into the first line.",
+                        'message': "Config version is missing/wrong. Put #show_version=6 into the first line.",
                         'severity': lsp.DiagnosticSeverity.Error,
                     }
                 )
